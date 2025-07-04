@@ -18,17 +18,14 @@ Questo è un'applicazione Electron per Windows che mostra il feed della webcam i
 - `package.json`: Configurazione del progetto e dipendenze
 
 ## Funzionalità Principali
-1. **Avvio/Fermata Camera**: Controllo del feed della webcam
-2. **Screenshot**: Cattura e salvataggio di immagini
-3. **Interfaccia Moderna**: Design con glassmorphism e gradients
-4. **Responsive**: Adattabile a diverse dimensioni della finestra
+- Possibilità di selezionare la webcam da un elenco di dispositivi disponibili
+- La webcam selezionata viene memorizzata e selezionata automaticamente al successivo avvio dell'app
 
 ## Linee Guida per lo Sviluppo
 - Mantieni il codice pulito e ben commentato
 - Usa moderne API web per la gestione della webcam
 - Implementa una gestione degli errori robusta
-- Assicurati che l'interfaccia sia intuitiva e accessibile
-- Testa sempre le funzionalità su Windows
+- Effettua numerosi log nella console per facilitare il debug
 
 ## Possibili Estensioni Future
 - Funzionalità Picture-in-Picture

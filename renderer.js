@@ -51,3 +51,8 @@ window.electronAPI.receive('select-device', (deviceId) => {
   startVideo(deviceId);
   window.electronAPI.send('set-selected-device', deviceId); // Salva il dispositivo selezionato
 });
+
+// Aggiungi un listener per l'evento 'refresh-devices'
+window.electronAPI.receive('refresh-devices', () => {
+  getDevices();
+});

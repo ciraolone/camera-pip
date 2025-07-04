@@ -27,6 +27,7 @@ app.whenReady().then(async () => {
   ipcMain.on('devices-list', (event, devices) => {
     const videoDevices = devices.filter(device => device.kind === 'videoinput');
     const selectedDeviceId = store.get('selectedDeviceId');
+    console.log('Dispositivo salvato all\'avvio:', selectedDeviceId);
 
     const menuTemplate = [
       {
@@ -52,6 +53,8 @@ app.whenReady().then(async () => {
             type: 'radio',
             checked: device.deviceId === selectedDeviceId,
             click: () => {
+              // Salva direttamente e invia al renderer
+              store.set('selectedDeviceId', device.deviceId);
               mainWindow.webContents.send('select-device', device.deviceId);
             }
           };
@@ -61,16 +64,6 @@ app.whenReady().then(async () => {
 
     const menu = Menu.buildFromTemplate(menuTemplate);
     Menu.setApplicationMenu(menu);
-  });
-
-  ipcMain.on('set-selected-device', (event, deviceId) => {
-    store.set('selectedDeviceId', deviceId);
-    // Ricarica il menu per mostrare la selezione corrente
-    const devices = store.get('devices'); // Assumendo che i device siano stati salvati
-    if (devices) {
-      // Codice per rigenerare il menu omesso per brevità, 
-      // la logica in 'devices-list' viene già rieseguita quando si ricarica la lista
-    }
   });
 
   ipcMain.handle('get-selected-device', async () => {
