@@ -32,6 +32,20 @@ function createWindow() {
 // Funzione per creare/aggiornare il menu dell'applicazione
 function createMenu(videoDevices = []) {
   const selectedDeviceId = store.get('selectedDeviceId');
+  const selectedResolution = store.get('selectedResolution', '1920x1080'); // Default
+  const selectedFps = store.get('selectedFps', 60); // Default
+
+  const resolutions = [
+    { label: '1080p (1920x1080)', resolution: '1920x1080' },
+    { label: '720p (1280x720)', resolution: '1280x720' },
+    { label: '480p (640x480)', resolution: '640x480' },
+  ];
+
+  const fpsOptions = [
+    { label: '60 FPS', fps: 60 },
+    { label: '30 FPS', fps: 30 },
+  ];
+
   console.log('Dispositivo salvato per il menu:', selectedDeviceId);
 
   const menuTemplate = [
@@ -64,6 +78,37 @@ function createMenu(videoDevices = []) {
           }
         };
       }) : [{ label: 'Nessuna camera trovata', enabled: false }]
+    },
+    {
+      label: 'Impostazioni Video',
+      submenu: [
+        {
+          label: 'Risoluzione',
+          submenu: resolutions.map(res => ({
+            label: res.label,
+            type: 'radio',
+            checked: res.resolution === selectedResolution,
+            click: () => {
+              store.set('selectedResolution', res.resolution);
+              mainWindow.webContents.send('settings-changed');
+              createMenu(videoDevices); // Ricarica il menu per aggiornare lo stato
+            }
+          }))
+        },
+        {
+          label: 'FPS',
+          submenu: fpsOptions.map(opt => ({
+            label: opt.label,
+            type: 'radio',
+            checked: opt.fps === selectedFps,
+            click: () => {
+              store.set('selectedFps', opt.fps);
+              mainWindow.webContents.send('settings-changed');
+              createMenu(videoDevices); // Ricarica il menu per aggiornare lo stato
+            }
+          }))
+        }
+      ]
     }
   ];
 
@@ -87,6 +132,13 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-selected-device', async () => {
     return store.get('selectedDeviceId');
+  });
+
+  ipcMain.handle('get-video-settings', async () => {
+    return {
+      resolution: store.get('selectedResolution', '1920x1080'),
+      fps: store.get('selectedFps', 60)
+    };
   });
 
   // Su Windows, la richiesta di permesso è gestita dal browser, ma su macOS è necessaria.

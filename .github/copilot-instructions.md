@@ -19,14 +19,14 @@ Questo è un'applicazione Electron per Windows che mostra il feed della webcam i
 
 ## Funzionalità Principali
 - Possibilità di selezionare la webcam da un elenco di dispositivi disponibili
-- La webcam selezionata viene memorizzata e selezionata automaticamente al successivo avvio dell'app
+- Tutte le impostazioni devono essere persistenti tra le sessioni
 - Posizione e dimensione della finestra vengono memorizzati e ripristinati all'avvio
 
 ## Linee Guida per lo Sviluppo
 - Mantieni il codice pulito e ben commentato
 - Usa moderne API web per la gestione della webcam
 - Implementa una gestione degli errori robusta
-- Effettua numerosi log nella console per facilitare il debug
+- Effettua numerosi log nella console del terminale per facilitare il debug
 
 ## Possibili Estensioni Future
 - Renderizzare tutto insieme all'avvio

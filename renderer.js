@@ -7,8 +7,16 @@ async function startVideo(deviceId) {
     currentStream.getTracks().forEach(track => track.stop());
   }
 
+  const { resolution, fps } = await window.electronAPI.invoke('get-video-settings');
+  const [width, height] = resolution.split('x').map(Number);
+
   const constraints = {
-    video: { deviceId: deviceId ? { exact: deviceId } : undefined }
+    video: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      width: { ideal: width },
+      height: { ideal: height },
+      frameRate: { ideal: fps }
+    }
   };
 
   try {
@@ -55,4 +63,10 @@ window.electronAPI.receive('select-device', (deviceId) => {
 // Aggiungi un listener per l'evento 'refresh-devices'
 window.electronAPI.receive('refresh-devices', () => {
   getDevices();
+});
+
+// Aggiungi un listener per l'evento 'settings-changed'
+window.electronAPI.receive('settings-changed', () => {
+  console.log("Impostazioni video cambiate, riavvio il video.");
+  initialize(); // Riavvia con le nuove impostazioni
 });
