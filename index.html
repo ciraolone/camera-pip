@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Camera PiP</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      /* Rimosso per permettere al video di fare da sfondo */
+    }
+
+    video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      /* Assicura che il video copra l'intera area, croppando se necessario */
+      position: fixed;
+      top: 0;
+      left: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <video id="webcam" autoplay></video>
+  <script src="renderer.js"></script>
+</body>
+
+</html>
