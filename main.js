@@ -1,19 +1,29 @@
 const { app, BrowserWindow, Menu, ipcMain, systemPreferences } = require('electron');
 const path = require('path');
+const windowStateKeeper = require('electron-window-state');
 
 let store;
 let mainWindow;
 
 function createWindow() {
+  const mainWindowState = windowStateKeeper({
+    defaultWidth: 800,
+    defaultHeight: 600
+  });
+
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    x: mainWindowState.x,
+    y: mainWindowState.y,
+    width: mainWindowState.width,
+    height: mainWindowState.height,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), // using a preload script is a good practice
       nodeIntegration: false, // è più sicuro
       contextIsolation: true, // è più sicuro
     }
   });
+
+  mainWindowState.manage(mainWindow);
 
   mainWindow.loadFile('index.html');
   mainWindow.webContents.openDevTools(); // Apri DevTools all'avvio per debug
