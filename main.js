@@ -19,51 +19,60 @@ function createWindow() {
   mainWindow.webContents.openDevTools(); // Apri DevTools all'avvio per debug
 }
 
+// Funzione per creare/aggiornare il menu dell'applicazione
+function createMenu(videoDevices = []) {
+  const selectedDeviceId = store.get('selectedDeviceId');
+  console.log('Dispositivo salvato per il menu:', selectedDeviceId);
+
+  const menuTemplate = [
+    {
+      label: 'File',
+      submenu: [
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { type: 'separator' },
+        { role: 'toggleDevTools' }
+      ]
+    },
+    {
+      label: 'Seleziona Camera',
+      submenu: videoDevices.length > 0 ? videoDevices.map(device => {
+        return {
+          label: device.label || `Camera ${device.deviceId.substring(0, 8)}...`,
+          type: 'radio',
+          checked: device.deviceId === selectedDeviceId,
+          click: () => {
+            // Salva direttamente e invia al renderer
+            store.set('selectedDeviceId', device.deviceId);
+            mainWindow.webContents.send('select-device', device.deviceId);
+          }
+        };
+      }) : [{ label: 'Nessuna camera trovata', enabled: false }]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(menuTemplate);
+  Menu.setApplicationMenu(menu);
+}
+
 app.whenReady().then(async () => {
   const { default: Store } = await import('electron-store');
   store = new Store();
 
+  // Crea il menu iniziale prima della creazione della finestra
+  createMenu();
+
   // Gestione della richiesta dei dispositivi dal renderer
   ipcMain.on('devices-list', (event, devices) => {
     const videoDevices = devices.filter(device => device.kind === 'videoinput');
-    const selectedDeviceId = store.get('selectedDeviceId');
-    console.log('Dispositivo salvato all\'avvio:', selectedDeviceId);
-
-    const menuTemplate = [
-      {
-        label: 'File',
-        submenu: [
-          { role: 'quit' }
-        ]
-      },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'reload' },
-          { role: 'forceReload' },
-          { type: 'separator' },
-          { role: 'toggleDevTools' }
-        ]
-      },
-      {
-        label: 'Seleziona Camera',
-        submenu: videoDevices.length > 0 ? videoDevices.map(device => {
-          return {
-            label: device.label || `Camera ${device.deviceId.substring(0, 8)}...`,
-            type: 'radio',
-            checked: device.deviceId === selectedDeviceId,
-            click: () => {
-              // Salva direttamente e invia al renderer
-              store.set('selectedDeviceId', device.deviceId);
-              mainWindow.webContents.send('select-device', device.deviceId);
-            }
-          };
-        }) : [{ label: 'Nessuna camera trovata', enabled: false }]
-      }
-    ];
-
-    const menu = Menu.buildFromTemplate(menuTemplate);
-    Menu.setApplicationMenu(menu);
+    // Aggiorna il menu con i dispositivi disponibili
+    createMenu(videoDevices);
   });
 
   ipcMain.handle('get-selected-device', async () => {

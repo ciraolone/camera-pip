@@ -28,10 +28,7 @@ Questo è un'applicazione Electron per Windows che mostra il feed della webcam i
 - Effettua numerosi log nella console per facilitare il debug
 
 ## Possibili Estensioni Future
-- Funzionalità Picture-in-Picture
-- Registrazione video
-- Filtri ed effetti per la camera
-- Supporto per multiple telecamere
+- Renderizzare tutto insieme all'avvio
 - Impostazioni avanzate per la qualità video
 
 ## Linee Guida per la Conversazione
