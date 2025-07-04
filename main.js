@@ -27,7 +27,6 @@ function createWindow() {
   mainWindowState.manage(mainWindow);
 
   mainWindow.loadFile('index.html');
-  mainWindow.webContents.openDevTools(); // Apri DevTools all'avvio per debug
 }
 
 // Funzione per creare/aggiornare il menu dell'applicazione
