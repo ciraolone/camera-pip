@@ -12,6 +12,7 @@ function createWindow() {
   });
 
   mainWindow = new BrowserWindow({
+    title: 'Ciraolone',
     x: mainWindowState.x,
     y: mainWindowState.y,
     width: mainWindowState.width,
