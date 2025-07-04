@@ -16,6 +16,7 @@ function createWindow() {
     y: mainWindowState.y,
     width: mainWindowState.width,
     height: mainWindowState.height,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), // using a preload script is a good practice
       nodeIntegration: false, // è più sicuro
