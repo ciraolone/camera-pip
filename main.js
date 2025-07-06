@@ -8,7 +8,8 @@ const APP_CONFIG = {
   defaultWidth: 800,
   defaultHeight: 600,
   defaultResolution: 'default',
-  defaultFps: 'default'
+  defaultFps: 'default',
+  defaultFlip: 'normal'
 };
 
 const RESOLUTIONS = [
@@ -27,6 +28,12 @@ const FPS_OPTIONS = [
   { label: '30 FPS', value: 30 },
   { label: '29.97 FPS', value: 29.97 },
   { label: '24 FPS', value: 24 }
+];
+
+const FLIP_OPTIONS = [
+  { label: 'Normal', value: 'normal' },
+  { label: 'Flipped', value: 'flipped' },
+  { label: 'Auto', value: 'auto' }
 ];
 
 // Global state
@@ -140,7 +147,8 @@ function getSettings() {
     alwaysOnTop: store?.get('alwaysOnTop', false) || false,
     zoomLevel: store?.get('zoomLevel', 1) || 1,
     offsetX: store?.get('offsetX', 0) || 0,
-    offsetY: store?.get('offsetY', 0) || 0
+    offsetY: store?.get('offsetY', 0) || 0,
+    flip: store?.get('flip', APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip
   };
 }
 
@@ -179,6 +187,13 @@ function buildContextMenu(settings) {
     click: () => changeFps(fps.value)
   }));
 
+  const flipSubmenu = FLIP_OPTIONS.map(flip => ({
+    label: flip.label,
+    type: 'radio',
+    checked: flip.value === settings.flip,
+    click: () => changeFlip(flip.value)
+  }));
+
   const template = [
     {
       label: 'File',
@@ -205,6 +220,7 @@ function buildContextMenu(settings) {
         { type: 'separator' },
         { label: 'Resolution', submenu: resolutionSubmenu },
         { label: 'Frame Rate', submenu: fpsSubmenu },
+        { label: 'Flip', submenu: flipSubmenu },
         { type: 'separator' },
         {
           label: 'Zoom Reset',
@@ -248,6 +264,13 @@ function changeResolution(resolution) {
 function changeFps(fps) {
   saveSettings({ fps });
   notifySettingsChanged();
+}
+
+function changeFlip(flip) {
+  saveSettings({ flip });
+  // Don't call notifySettingsChanged() to avoid camera restart
+  createMenu(); // Just update the menu
+  mainWindow?.webContents.send('flip-changed', flip);
 }
 
 function toggleWebcamInfo() {

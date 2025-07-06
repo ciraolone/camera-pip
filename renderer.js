@@ -12,6 +12,7 @@ class CameraPiP {
     this.minZoomLevel = 1; // Will be calculated based on window/video dimensions
     this.currentOffsetX = 0;
     this.currentOffsetY = 0;
+    this.currentFlip = 'normal';
     this.lastKeyTime = 0;
     this.lastKeyTime = 0;
 
@@ -37,9 +38,11 @@ class CameraPiP {
       this.currentZoom = settings.zoomLevel || 1;
       this.currentOffsetX = settings.offsetX || 0;
       this.currentOffsetY = settings.offsetY || 0;
+      this.currentFlip = settings.flip || 'normal';
       this.updateWebcamInfoVisibility();
       this.applyZoom(this.currentZoom);
       this.applyOffset(this.currentOffsetX, this.currentOffsetY);
+      this.applyFlip(this.currentFlip);
 
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
@@ -73,6 +76,10 @@ class CameraPiP {
       this.currentOffsetX = offset.x;
       this.currentOffsetY = offset.y;
       this.applyOffset(offset.x, offset.y);
+    });
+
+    window.electronAPI.receive('flip-changed', (flip) => {
+      this.applyFlip(flip);
     });
 
     // Keyboard shortcuts handler
@@ -126,6 +133,7 @@ class CameraPiP {
       this.calculateMinZoom();
       this.applyZoom(this.currentZoom); // Re-apply zoom with new minimum
       this.applyOffset(this.currentOffsetX, this.currentOffsetY); // Re-apply offset
+      this.applyFlip(this.currentFlip); // Re-apply flip
     });
 
     // Window resize event
@@ -133,7 +141,30 @@ class CameraPiP {
       this.calculateMinZoom();
       this.applyZoom(this.currentZoom);
       this.applyOffset(this.currentOffsetX, this.currentOffsetY);
+      this.applyFlip(this.currentFlip);
+      // Update window info when resizing
+      this.forceUpdateWebcamInfo();
+      // Check auto flip when window resizes
+      if (this.currentFlip === 'auto') {
+        this.applyAllTransformsWithFlip();
+      }
     });
+
+    // Window move/position change event
+    window.addEventListener('beforeunload', () => {
+      this.forceUpdateWebcamInfo();
+    });
+
+    // Update window info periodically for position changes
+    setInterval(() => {
+      if (this.showWebcamInfo) {
+        this.forceUpdateWebcamInfo();
+      }
+      // Check auto flip when window moves
+      if (this.currentFlip === 'auto') {
+        this.applyAllTransformsWithFlip();
+      }
+    }, 100); // Update every 100ms for smoother auto flip
   }
 
   // Start camera with optional device ID
@@ -353,6 +384,37 @@ class CameraPiP {
     }
   }
 
+  // Get window information
+  getWindowInfo() {
+    const windowSize = {
+      width: window.innerWidth,
+      height: window.innerHeight
+    };
+
+    const windowPosition = {
+      x: window.screenX,
+      y: window.screenY
+    };
+
+    // Calculate distances from screen edges
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    
+    const distanceFromLeft = windowPosition.x;
+    const distanceFromTop = windowPosition.y;
+    const distanceFromRight = screenWidth - (windowPosition.x + windowSize.width);
+    const distanceFromBottom = screenHeight - (windowPosition.y + windowSize.height);
+
+    const distances = {
+      left: Math.max(0, distanceFromLeft),
+      top: Math.max(0, distanceFromTop),
+      right: Math.max(0, distanceFromRight),
+      bottom: Math.max(0, distanceFromBottom)
+    };
+
+    return { windowSize, windowPosition, distances };
+  }
+
   // Update webcam info display
   updateWebcamInfo() {
     if (!this.showWebcamInfo || !this.webcamInfoElement || !this.videoElement) return;
@@ -361,8 +423,10 @@ class CameraPiP {
     const fpsInfo = document.getElementById('fps-info');
     const zoomInfo = document.getElementById('zoom-info');
     const offsetInfo = document.getElementById('offset-info');
+    const windowSizeInfo = document.getElementById('window-size-info');
+    const windowDistanceInfo = document.getElementById('window-distance-info');
 
-    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo) {
+    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo && windowSizeInfo && windowDistanceInfo) {
       const videoWidth = this.videoElement.videoWidth;
       const videoHeight = this.videoElement.videoHeight;
 
@@ -385,6 +449,11 @@ class CameraPiP {
 
       // Update offset info
       offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
+
+      // Update window info
+      const windowInfo = this.getWindowInfo();
+      windowSizeInfo.textContent = `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`;
+      windowDistanceInfo.textContent = `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`;
     }
   }
 
@@ -394,8 +463,10 @@ class CameraPiP {
     const fpsInfo = document.getElementById('fps-info');
     const zoomInfo = document.getElementById('zoom-info');
     const offsetInfo = document.getElementById('offset-info');
+    const windowSizeInfo = document.getElementById('window-size-info');
+    const windowDistanceInfo = document.getElementById('window-distance-info');
 
-    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo) {
+    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo && windowSizeInfo && windowDistanceInfo) {
       const videoWidth = this.videoElement?.videoWidth;
       const videoHeight = this.videoElement?.videoHeight;
 
@@ -416,6 +487,11 @@ class CameraPiP {
       // Always update zoom and offset info
       zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
       offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
+
+      // Always update window info
+      const windowInfo = this.getWindowInfo();
+      windowSizeInfo.textContent = `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`;
+      windowDistanceInfo.textContent = `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`;
     }
   }
 
@@ -433,12 +509,8 @@ class CameraPiP {
     // Update current zoom
     this.currentZoom = adjustedZoomLevel;
 
-    // Combine offset and zoom transforms - translate BEFORE scale
-    const offsetTransform = `translate(${this.currentOffsetX}px, ${this.currentOffsetY}px)`;
-    const zoomTransform = `scale(${adjustedZoomLevel})`;
-
-    this.videoElement.style.transform = `${offsetTransform} ${zoomTransform}`;
-    this.videoElement.style.transformOrigin = 'center center';
+    // Apply transforms with flip consideration
+    this.applyAllTransformsWithFlip();
 
     // Force update webcam info regardless of visibility
     this.forceUpdateWebcamInfo();
@@ -452,15 +524,61 @@ class CameraPiP {
     this.currentOffsetX = offsetX;
     this.currentOffsetY = offsetY;
 
-    // Combine offset and zoom transforms - translate BEFORE scale
-    const offsetTransform = `translate(${offsetX}px, ${offsetY}px)`;
-    const zoomTransform = `scale(${this.currentZoom})`;
-
-    this.videoElement.style.transform = `${offsetTransform} ${zoomTransform}`;
-    this.videoElement.style.transformOrigin = 'center center';
+    // Apply transforms with flip consideration
+    this.applyAllTransformsWithFlip();
 
     // Force update webcam info regardless of visibility
     this.forceUpdateWebcamInfo();
+  }
+
+  // Apply all transforms considering flip
+  applyAllTransformsWithFlip() {
+    if (!this.videoElement) return;
+
+    const baseTransforms = this.getCurrentTransforms();
+    const effectiveFlip = this.getEffectiveFlip();
+    
+    let finalTransform;
+    if (effectiveFlip === 'flipped') {
+      finalTransform = `scaleX(-1) ${baseTransforms}`;
+    } else {
+      finalTransform = baseTransforms;
+    }
+    
+    this.videoElement.style.transform = finalTransform;
+    this.videoElement.style.transformOrigin = 'center center';
+  }
+
+  // Apply flip to video element
+  applyFlip(flip) {
+    if (!this.videoElement) return;
+
+    // Update current flip
+    this.currentFlip = flip;
+
+    // Apply transforms with flip consideration
+    this.applyAllTransformsWithFlip();
+
+    // Force update webcam info regardless of visibility
+    this.forceUpdateWebcamInfo();
+  }
+
+  // Get current transforms (without flip)
+  getCurrentTransforms() {
+    const transforms = [];
+
+    // 1. Offset (translate)
+    if (this.currentOffsetX !== 0 || this.currentOffsetY !== 0) {
+      transforms.push(`translate(${this.currentOffsetX}px, ${this.currentOffsetY}px)`);
+    }
+
+    // 2. Zoom (scale)
+    if (this.currentZoom !== 1) {
+      transforms.push(`scale(${this.currentZoom})`);
+    }
+
+    const result = transforms.join(' ');
+    return result;
   }
 
   // Calculate minimum zoom level to fill window
@@ -473,6 +591,24 @@ class CameraPiP {
     // With object-fit: cover, the video already fills the window
     // So minimum zoom should be 1.0 (no scaling needed)
     this.minZoomLevel = 1.0;
+  }
+
+  // Check if window is in the right half of the screen
+  isWindowInRightHalf() {
+    const windowInfo = this.getWindowInfo();
+    const screenWidth = window.screen.width;
+    const windowCenterX = windowInfo.windowPosition.x + (windowInfo.windowSize.width / 2);
+    const screenCenterX = screenWidth / 2;
+    
+    return windowCenterX > screenCenterX;
+  }
+
+  // Determine effective flip state (considering auto mode)
+  getEffectiveFlip() {
+    if (this.currentFlip === 'auto') {
+      return this.isWindowInRightHalf() ? 'flipped' : 'normal';
+    }
+    return this.currentFlip;
   }
 }
 
