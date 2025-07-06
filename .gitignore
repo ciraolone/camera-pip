@@ -1,3 +1,4 @@
 node_modules/
 .DS_Store
 camera-pip-win32-x64/
+dist/
