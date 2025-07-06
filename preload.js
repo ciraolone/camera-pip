@@ -25,7 +25,7 @@ const ALLOWED_INVOKE_CHANNELS = [
 function isValidSendChannel(channel) {
   const isValid = ALLOWED_SEND_CHANNELS.includes(channel);
   if (!isValid) {
-    console.warn('⚠️ Tentativo di invio su canale non autorizzato:', channel);
+    console.warn('Tentativo di invio su canale non autorizzato:', channel);
   }
   return isValid;
 }
@@ -38,7 +38,7 @@ function isValidSendChannel(channel) {
 function isValidReceiveChannel(channel) {
   const isValid = ALLOWED_RECEIVE_CHANNELS.includes(channel);
   if (!isValid) {
-    console.warn('⚠️ Tentativo di ricezione su canale non autorizzato:', channel);
+    console.warn('Tentativo di ricezione su canale non autorizzato:', channel);
   }
   return isValid;
 }
@@ -51,7 +51,7 @@ function isValidReceiveChannel(channel) {
 function isValidInvokeChannel(channel) {
   const isValid = ALLOWED_INVOKE_CHANNELS.includes(channel);
   if (!isValid) {
-    console.warn('⚠️ Tentativo di invoke su canale non autorizzato:', channel);
+    console.warn('Tentativo di invoke su canale non autorizzato:', channel);
   }
   return isValid;
 }
@@ -62,18 +62,15 @@ function isValidInvokeChannel(channel) {
  * @param {any} data - Dati da inviare
  */
 function secureSend(channel, data) {
-  console.log('📤 Invio dati al processo principale:', channel);
-
   if (!isValidSendChannel(channel)) {
-    console.error('❌ Canale di invio non autorizzato:', channel);
+    console.error('Canale di invio non autorizzato:', channel);
     return;
   }
 
   try {
     ipcRenderer.send(channel, data);
-    console.log('✅ Dati inviati con successo');
   } catch (error) {
-    console.error('❌ Errore durante l\'invio:', error);
+    console.error('Errore durante l\'invio:', error);
   }
 }
 
@@ -83,26 +80,22 @@ function secureSend(channel, data) {
  * @param {Function} callback - Funzione di callback
  */
 function secureReceive(channel, callback) {
-  console.log('📥 Configurazione ricezione dal processo principale:', channel);
-
   if (!isValidReceiveChannel(channel)) {
-    console.error('❌ Canale di ricezione non autorizzato:', channel);
+    console.error('Canale di ricezione non autorizzato:', channel);
     return;
   }
 
   if (typeof callback !== 'function') {
-    console.error('❌ Callback non valido per canale:', channel);
+    console.error('Callback non valido per canale:', channel);
     return;
   }
 
   try {
     ipcRenderer.on(channel, (event, ...args) => {
-      console.log('📨 Ricevuto messaggio su canale:', channel);
       callback(...args);
     });
-    console.log('✅ Listener configurato con successo');
   } catch (error) {
-    console.error('❌ Errore durante la configurazione del listener:', error);
+    console.error('Errore durante la configurazione del listener:', error);
   }
 }
 
@@ -113,19 +106,16 @@ function secureReceive(channel, callback) {
  * @returns {Promise<any>} Promessa con il risultato
  */
 async function secureInvoke(channel, ...args) {
-  console.log('🔄 Invocazione funzione nel processo principale:', channel);
-
   if (!isValidInvokeChannel(channel)) {
-    console.error('❌ Canale di invocazione non autorizzato:', channel);
+    console.error('Canale di invocazione non autorizzato:', channel);
     return Promise.reject(new Error(`Canale non autorizzato: ${channel}`));
   }
 
   try {
     const result = await ipcRenderer.invoke(channel, ...args);
-    console.log('✅ Invocazione completata con successo');
     return result;
   } catch (error) {
-    console.error('❌ Errore durante l\'invocazione:', error);
+    console.error('Errore durante l\'invocazione:', error);
     throw error;
   }
 }
@@ -157,15 +147,6 @@ try {
     }
   });
 
-  console.log('✅ API Electron esposte con successo nel mondo principale');
-  console.log('📋 Canali autorizzati:', {
-    send: ALLOWED_SEND_CHANNELS,
-    receive: ALLOWED_RECEIVE_CHANNELS,
-    invoke: ALLOWED_INVOKE_CHANNELS
-  });
-
 } catch (error) {
-  console.error('❌ Errore durante l\'esposizione delle API:', error);
+  console.error('Errore durante l\'esposizione delle API:', error);
 }
-
-console.log('🔒 Script preload.js caricato con successo');
