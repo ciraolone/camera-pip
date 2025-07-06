@@ -7,7 +7,6 @@ Applicazione Electron per Windows che mostra il feed della webcam in una finestr
 
 ## Ambiente di Utilizzo
 - **Sistema Operativo**: Windows
-- **Webcam**: OBSBOT Tail Air Camera
 
 ## Funzionalità Implementate
 
