@@ -33,6 +33,9 @@ const FPS_OPTIONS = [
 let store;
 let mainWindow;
 let videoDevices = [];
+let keyDebounceTimer = null;
+let lastKeyTime = 0;
+const KEY_DEBOUNCE_DELAY = 150; // Milliseconds
 
 // Initialize store
 async function initStore() {
@@ -80,6 +83,27 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Setup keyboard shortcuts
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.control || input.meta) {
+      const currentTime = Date.now();
+
+      // Prevent key repeat - only allow one action per key press
+      if (input.type === 'keyDown' && currentTime - lastKeyTime > KEY_DEBOUNCE_DELAY) {
+        if (input.key === '=' || input.key === '+') {
+          lastKeyTime = currentTime;
+          changeZoom('in');
+        } else if (input.key === '-') {
+          lastKeyTime = currentTime;
+          changeZoom('out');
+        } else if (input.key === '0') {
+          lastKeyTime = currentTime;
+          changeZoom('reset');
+        }
+      }
+    }
+  });
 }
 
 // Settings management
@@ -89,7 +113,8 @@ function getSettings() {
     fps: store?.get('fps', APP_CONFIG.defaultFps) || APP_CONFIG.defaultFps,
     selectedDeviceId: store?.get('selectedDeviceId') || null,
     showWebcamInfo: store?.get('showWebcamInfo', false) || false,
-    alwaysOnTop: store?.get('alwaysOnTop', false) || false
+    alwaysOnTop: store?.get('alwaysOnTop', false) || false,
+    zoomLevel: store?.get('zoomLevel', 1) || 1
   };
 }
 
@@ -156,6 +181,11 @@ function buildContextMenu(settings) {
         { label: 'Frame Rate', submenu: fpsSubmenu },
         { type: 'separator' },
         {
+          label: 'Zoom Reset',
+          click: () => changeZoom('reset')
+        },
+        { type: 'separator' },
+        {
           label: 'Info webcam',
           type: 'checkbox',
           checked: settings.showWebcamInfo,
@@ -211,6 +241,24 @@ function notifySettingsChanged() {
   mainWindow?.webContents.send('settings-changed');
 }
 
+// Zoom management
+function changeZoom(direction) {
+  const settings = getSettings();
+  let newZoomLevel = settings.zoomLevel;
+
+  if (direction === 'in') {
+    newZoomLevel = Math.min(newZoomLevel + 0.1, 5); // Max zoom 5x
+  } else if (direction === 'out') {
+    newZoomLevel = Math.max(newZoomLevel - 0.1, 1.0); // Min zoom 1.0x (cannot go below window fill)
+  } else if (direction === 'reset') {
+    newZoomLevel = 1;
+  }
+
+  newZoomLevel = Math.round(newZoomLevel * 10) / 10; // Round to 1 decimal
+  saveSettings({ zoomLevel: newZoomLevel });
+  mainWindow?.webContents.send('zoom-changed', newZoomLevel);
+}
+
 // Permission handling
 async function requestCameraPermission() {
   if (process.platform !== 'darwin') return true;
@@ -244,6 +292,18 @@ function setupIPC() {
   ipcMain.on('webcam-info-update', (event, info) => {
     if (mainWindow) {
       mainWindow.webContents.send('webcam-info-data', info);
+    }
+  });
+
+  // Handle zoom requests from renderer
+  ipcMain.on('zoom-request', (event, direction, value) => {
+    if (direction === 'set-level' && typeof value === 'number') {
+      // Direct zoom level setting from renderer
+      const newZoomLevel = Math.round(value * 10) / 10;
+      saveSettings({ zoomLevel: newZoomLevel });
+      // Don't send back to renderer to avoid loop
+    } else {
+      changeZoom(direction);
     }
   });
 }

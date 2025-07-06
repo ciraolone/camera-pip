@@ -8,6 +8,8 @@ class CameraPiP {
     this.retryDelay = 2000;
     this.webcamInfoElement = null;
     this.showWebcamInfo = false;
+    this.currentZoom = 1;
+    this.minZoomLevel = 1; // Will be calculated based on window/video dimensions
 
     this.init();
   }
@@ -28,7 +30,9 @@ class CameraPiP {
       // Start camera with saved device ID
       const settings = await this.getSettings();
       this.showWebcamInfo = settings.showWebcamInfo;
+      this.currentZoom = settings.zoomLevel || 1;
       this.updateWebcamInfoVisibility();
+      this.applyZoom(this.currentZoom);
 
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
@@ -53,6 +57,11 @@ class CameraPiP {
       this.updateWebcamInfoVisibility();
     });
 
+    window.electronAPI.receive('zoom-changed', (zoomLevel) => {
+      this.currentZoom = zoomLevel;
+      this.applyZoom(zoomLevel);
+    });
+
     // Video events
     this.videoElement.addEventListener('error', (e) => {
       console.error('Video error:', e);
@@ -61,6 +70,14 @@ class CameraPiP {
 
     this.videoElement.addEventListener('loadedmetadata', () => {
       this.updateWebcamInfo();
+      this.calculateMinZoom();
+      this.applyZoom(this.currentZoom); // Re-apply zoom with new minimum
+    });
+
+    // Window resize event
+    window.addEventListener('resize', () => {
+      this.calculateMinZoom();
+      this.applyZoom(this.currentZoom);
     });
   }
 
@@ -287,13 +304,14 @@ class CameraPiP {
 
     const resolutionInfo = document.getElementById('resolution-info');
     const fpsInfo = document.getElementById('fps-info');
+    const zoomInfo = document.getElementById('zoom-info');
 
-    if (resolutionInfo && fpsInfo) {
+    if (resolutionInfo && fpsInfo && zoomInfo) {
       const videoWidth = this.videoElement.videoWidth;
       const videoHeight = this.videoElement.videoHeight;
 
       if (videoWidth && videoHeight) {
-        resolutionInfo.textContent = `Risoluzione: ${videoWidth}x${videoHeight}`;
+        resolutionInfo.textContent = `Res: ${videoWidth}x${videoHeight}`;
 
         // Get actual FPS from video track
         if (this.currentStream) {
@@ -305,7 +323,45 @@ class CameraPiP {
           }
         }
       }
+
+      // Update zoom info
+      zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
     }
+  }
+
+  // Apply zoom to video element
+  applyZoom(zoomLevel) {
+    if (!this.videoElement) return;
+
+    // Calculate minimum zoom to fill window
+    this.calculateMinZoom();
+
+    // The main process already ensures zoom is not below minimum
+    // but we double-check here for safety
+    const adjustedZoomLevel = Math.max(zoomLevel, this.minZoomLevel);
+
+    // Update current zoom
+    this.currentZoom = adjustedZoomLevel;
+
+    // Apply zoom using CSS transform
+    // object-fit: cover in CSS already handles filling the window at 1.0x
+    this.videoElement.style.transform = `scale(${adjustedZoomLevel})`;
+    this.videoElement.style.transformOrigin = 'center center';
+
+    // Update webcam info to show new zoom level
+    this.updateWebcamInfo();
+  }
+
+  // Calculate minimum zoom level to fill window
+  calculateMinZoom() {
+    if (!this.videoElement || !this.videoElement.videoWidth || !this.videoElement.videoHeight) {
+      this.minZoomLevel = 1;
+      return;
+    }
+
+    // With object-fit: cover, the video already fills the window
+    // So minimum zoom should be 1.0 (no scaling needed)
+    this.minZoomLevel = 1.0;
   }
 }
 
