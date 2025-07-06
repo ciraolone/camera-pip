@@ -399,7 +399,7 @@ class CameraPiP {
     // Calculate distances from screen edges
     const screenWidth = window.screen.width;
     const screenHeight = window.screen.height;
-    
+
     const distanceFromLeft = windowPosition.x;
     const distanceFromTop = windowPosition.y;
     const distanceFromRight = screenWidth - (windowPosition.x + windowSize.width);
@@ -537,14 +537,14 @@ class CameraPiP {
 
     const baseTransforms = this.getCurrentTransforms();
     const effectiveFlip = this.getEffectiveFlip();
-    
+
     let finalTransform;
     if (effectiveFlip === 'flipped') {
       finalTransform = `scaleX(-1) ${baseTransforms}`;
     } else {
       finalTransform = baseTransforms;
     }
-    
+
     this.videoElement.style.transform = finalTransform;
     this.videoElement.style.transformOrigin = 'center center';
   }
@@ -599,7 +599,7 @@ class CameraPiP {
     const screenWidth = window.screen.width;
     const windowCenterX = windowInfo.windowPosition.x + (windowInfo.windowSize.width / 2);
     const screenCenterX = screenWidth / 2;
-    
+
     return windowCenterX > screenCenterX;
   }
 
