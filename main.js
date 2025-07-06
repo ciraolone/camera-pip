@@ -57,6 +57,7 @@ function createWindow() {
     height: windowState.height,
     autoHideMenuBar: true,
     alwaysOnTop: settings.alwaysOnTop,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -68,6 +69,13 @@ function createWindow() {
 
   windowState.manage(mainWindow);
   mainWindow.loadFile('index.html');
+
+  // Setup context menu for right-click
+  mainWindow.webContents.on('context-menu', (e, params) => {
+    const settings = getSettings();
+    const contextMenu = buildContextMenu(settings);
+    contextMenu.popup(mainWindow, params.x, params.y);
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -96,9 +104,7 @@ function saveSettings(settings) {
 }
 
 // Menu management
-function createMenu() {
-  const settings = getSettings();
-
+function buildContextMenu(settings) {
   const deviceSubmenu = videoDevices.length > 0
     ? videoDevices.map(device => ({
       label: device.label || `Camera ${device.deviceId.substring(0, 8)}`,
@@ -159,8 +165,12 @@ function createMenu() {
     }
   ];
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  return Menu.buildFromTemplate(template);
+}
+
+function createMenu() {
+  // Remove application menu bar
+  Menu.setApplicationMenu(null);
 }
 
 // Device selection
