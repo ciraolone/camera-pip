@@ -6,6 +6,8 @@ class CameraPiP {
     this.retryCount = 0;
     this.maxRetries = 3;
     this.retryDelay = 2000;
+    this.webcamInfoElement = null;
+    this.showWebcamInfo = false;
 
     this.init();
   }
@@ -14,6 +16,8 @@ class CameraPiP {
   async init() {
     try {
       this.videoElement = document.getElementById('webcam');
+      this.webcamInfoElement = document.getElementById('webcam-info');
+
       if (!this.videoElement) {
         throw new Error('Video element not found');
       }
@@ -23,6 +27,9 @@ class CameraPiP {
 
       // Start camera with saved device ID
       const settings = await this.getSettings();
+      this.showWebcamInfo = settings.showWebcamInfo;
+      this.updateWebcamInfoVisibility();
+
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
       console.error('Initialization error:', error);
@@ -41,10 +48,19 @@ class CameraPiP {
       this.restartCamera();
     });
 
+    window.electronAPI.receive('webcam-info-toggled', (show) => {
+      this.showWebcamInfo = show;
+      this.updateWebcamInfoVisibility();
+    });
+
     // Video events
     this.videoElement.addEventListener('error', (e) => {
       console.error('Video error:', e);
       this.handleError(new Error('Video playback error'));
+    });
+
+    this.videoElement.addEventListener('loadedmetadata', () => {
+      this.updateWebcamInfo();
     });
   }
 
@@ -98,8 +114,8 @@ class CameraPiP {
     } catch (error) {
       console.error('Settings error:', error);
       return {
-        resolution: '1920x1080',
-        fps: 60,
+        resolution: 'default',
+        fps: 'default',
         selectedDeviceId: null
       };
     }
@@ -107,15 +123,21 @@ class CameraPiP {
 
   // Create video constraints
   createConstraints(deviceId, settings) {
-    const [width, height] = settings.resolution.split('x').map(Number);
-
     const constraints = {
-      video: {
-        width: { ideal: width },
-        height: { ideal: height },
-        frameRate: { ideal: settings.fps }
-      }
+      video: {}
     };
+
+    // Handle resolution
+    if (settings.resolution !== 'default') {
+      const [width, height] = settings.resolution.split('x').map(Number);
+      constraints.video.width = { ideal: width };
+      constraints.video.height = { ideal: height };
+    }
+
+    // Handle frame rate
+    if (settings.fps !== 'default') {
+      constraints.video.frameRate = { ideal: settings.fps };
+    }
 
     if (deviceId) {
       constraints.video.deviceId = { exact: deviceId };
@@ -245,6 +267,45 @@ class CameraPiP {
         errorDiv.style.display = 'none';
       }
     }, 5000);
+  }
+
+  // Update webcam info visibility
+  updateWebcamInfoVisibility() {
+    if (this.webcamInfoElement) {
+      if (this.showWebcamInfo) {
+        this.webcamInfoElement.classList.add('visible');
+        this.updateWebcamInfo();
+      } else {
+        this.webcamInfoElement.classList.remove('visible');
+      }
+    }
+  }
+
+  // Update webcam info display
+  updateWebcamInfo() {
+    if (!this.showWebcamInfo || !this.webcamInfoElement || !this.videoElement) return;
+
+    const resolutionInfo = document.getElementById('resolution-info');
+    const fpsInfo = document.getElementById('fps-info');
+
+    if (resolutionInfo && fpsInfo) {
+      const videoWidth = this.videoElement.videoWidth;
+      const videoHeight = this.videoElement.videoHeight;
+
+      if (videoWidth && videoHeight) {
+        resolutionInfo.textContent = `Risoluzione: ${videoWidth}x${videoHeight}`;
+
+        // Get actual FPS from video track
+        if (this.currentStream) {
+          const videoTracks = this.currentStream.getVideoTracks();
+          if (videoTracks.length > 0) {
+            const settings = videoTracks[0].getSettings();
+            const fps = settings.frameRate ? Math.round(settings.frameRate) : '--';
+            fpsInfo.textContent = `FPS: ${fps}`;
+          }
+        }
+      }
+    }
   }
 }
 

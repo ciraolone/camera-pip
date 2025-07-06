@@ -7,19 +7,26 @@ const APP_CONFIG = {
   title: 'Ciraolone',
   defaultWidth: 800,
   defaultHeight: 600,
-  defaultResolution: '1920x1080',
-  defaultFps: 60
+  defaultResolution: 'default',
+  defaultFps: 'default'
 };
 
 const RESOLUTIONS = [
+  { label: 'Default', value: 'default' },
+  { label: '4K (3840x2160)', value: '3840x2160' },
   { label: '1080p (1920x1080)', value: '1920x1080' },
   { label: '720p (1280x720)', value: '1280x720' },
-  { label: '480p (640x480)', value: '640x480' }
+  { label: '480p (640x480)', value: '640x480' },
+  { label: '360p (640x360)', value: '640x360' }
 ];
 
 const FPS_OPTIONS = [
+  { label: 'Default', value: 'default' },
   { label: '60 FPS', value: 60 },
-  { label: '30 FPS', value: 30 }
+  { label: '59.94 FPS', value: 59.94 },
+  { label: '30 FPS', value: 30 },
+  { label: '29.97 FPS', value: 29.97 },
+  { label: '24 FPS', value: 24 }
 ];
 
 // Global state
@@ -69,7 +76,8 @@ function getSettings() {
   return {
     resolution: store?.get('resolution', APP_CONFIG.defaultResolution) || APP_CONFIG.defaultResolution,
     fps: store?.get('fps', APP_CONFIG.defaultFps) || APP_CONFIG.defaultFps,
-    selectedDeviceId: store?.get('selectedDeviceId') || null
+    selectedDeviceId: store?.get('selectedDeviceId') || null,
+    showWebcamInfo: store?.get('showWebcamInfo', false) || false
   };
 }
 
@@ -113,26 +121,29 @@ function createMenu() {
   const template = [
     {
       label: 'File',
-      submenu: [{ role: 'quit' }]
-    },
-    {
-      label: 'View',
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
         { type: 'separator' },
-        { role: 'toggleDevTools' }
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'quit' }
       ]
-    },
-    {
-      label: 'Camera',
-      submenu: deviceSubmenu
     },
     {
       label: 'Settings',
       submenu: [
+        { label: 'Camera', submenu: deviceSubmenu },
+        { type: 'separator' },
         { label: 'Resolution', submenu: resolutionSubmenu },
-        { label: 'Frame Rate', submenu: fpsSubmenu }
+        { label: 'Frame Rate', submenu: fpsSubmenu },
+        { type: 'separator' },
+        {
+          label: 'Info webcam',
+          type: 'checkbox',
+          checked: settings.showWebcamInfo,
+          click: () => toggleWebcamInfo()
+        }
       ]
     }
   ];
@@ -156,6 +167,14 @@ function changeResolution(resolution) {
 function changeFps(fps) {
   saveSettings({ fps });
   notifySettingsChanged();
+}
+
+function toggleWebcamInfo() {
+  const settings = getSettings();
+  const newValue = !settings.showWebcamInfo;
+  saveSettings({ showWebcamInfo: newValue });
+  notifySettingsChanged();
+  mainWindow?.webContents.send('webcam-info-toggled', newValue);
 }
 
 function notifySettingsChanged() {
@@ -189,6 +208,13 @@ function setupIPC() {
     if (deviceId) {
       saveSettings({ selectedDeviceId: deviceId });
       createMenu(); // Update menu to reflect active device
+    }
+  });
+
+  // Handle webcam info update
+  ipcMain.on('webcam-info-update', (event, info) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('webcam-info-data', info);
     }
   });
 }
