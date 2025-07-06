@@ -86,12 +86,16 @@ function createWindow() {
 
   // Setup keyboard shortcuts
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.control || input.meta) {
-      const currentTime = Date.now();
+    const currentTime = Date.now();
 
-      // Prevent key repeat - only allow one action per key press
-      if (input.type === 'keyDown' && currentTime - lastKeyTime > KEY_DEBOUNCE_DELAY) {
-        if (input.key === '=' || input.key === '+') {
+    // Prevent key repeat - only allow one action per key press
+    if (input.type === 'keyDown' && currentTime - lastKeyTime > KEY_DEBOUNCE_DELAY) {
+      if (input.control || input.meta) {
+        if (input.key === 'i' || input.key === 'I') {
+          lastKeyTime = currentTime;
+          toggleWebcamInfo();
+          event.preventDefault();
+        } else if (input.key === '=' || input.key === '+') {
           lastKeyTime = currentTime;
           changeZoom('in');
           event.preventDefault();
@@ -102,6 +106,7 @@ function createWindow() {
         } else if (input.key === '0') {
           lastKeyTime = currentTime;
           changeZoom('reset');
+          changeOffset('reset');
           event.preventDefault();
         } else if (input.key === 'ArrowUp') {
           lastKeyTime = currentTime;
