@@ -10,6 +10,10 @@ class CameraPiP {
     this.showWebcamInfo = false;
     this.currentZoom = 1;
     this.minZoomLevel = 1; // Will be calculated based on window/video dimensions
+    this.currentOffsetX = 0;
+    this.currentOffsetY = 0;
+    this.lastKeyTime = 0;
+    this.lastKeyTime = 0;
 
     this.init();
   }
@@ -31,8 +35,11 @@ class CameraPiP {
       const settings = await this.getSettings();
       this.showWebcamInfo = settings.showWebcamInfo;
       this.currentZoom = settings.zoomLevel || 1;
+      this.currentOffsetX = settings.offsetX || 0;
+      this.currentOffsetY = settings.offsetY || 0;
       this.updateWebcamInfoVisibility();
       this.applyZoom(this.currentZoom);
+      this.applyOffset(this.currentOffsetX, this.currentOffsetY);
 
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
@@ -62,6 +69,52 @@ class CameraPiP {
       this.applyZoom(zoomLevel);
     });
 
+    window.electronAPI.receive('offset-changed', (offset) => {
+      this.currentOffsetX = offset.x;
+      this.currentOffsetY = offset.y;
+      this.applyOffset(offset.x, offset.y);
+    });
+
+    // Keyboard shortcuts handler
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        const currentTime = Date.now();
+
+        // Prevent key repeat
+        if (currentTime - this.lastKeyTime > 150) {
+          if (e.key === '=' || e.key === '+') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('zoom-request', 'in');
+            e.preventDefault();
+          } else if (e.key === '-') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('zoom-request', 'out');
+            e.preventDefault();
+          } else if (e.key === '0') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('zoom-request', 'reset');
+            e.preventDefault();
+          } else if (e.key === 'ArrowUp') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('offset-request', 'up');
+            e.preventDefault();
+          } else if (e.key === 'ArrowDown') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('offset-request', 'down');
+            e.preventDefault();
+          } else if (e.key === 'ArrowLeft') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('offset-request', 'left');
+            e.preventDefault();
+          } else if (e.key === 'ArrowRight') {
+            this.lastKeyTime = currentTime;
+            window.electronAPI.send('offset-request', 'right');
+            e.preventDefault();
+          }
+        }
+      }
+    });
+
     // Video events
     this.videoElement.addEventListener('error', (e) => {
       console.error('Video error:', e);
@@ -72,12 +125,14 @@ class CameraPiP {
       this.updateWebcamInfo();
       this.calculateMinZoom();
       this.applyZoom(this.currentZoom); // Re-apply zoom with new minimum
+      this.applyOffset(this.currentOffsetX, this.currentOffsetY); // Re-apply offset
     });
 
     // Window resize event
     window.addEventListener('resize', () => {
       this.calculateMinZoom();
       this.applyZoom(this.currentZoom);
+      this.applyOffset(this.currentOffsetX, this.currentOffsetY);
     });
   }
 
@@ -305,8 +360,9 @@ class CameraPiP {
     const resolutionInfo = document.getElementById('resolution-info');
     const fpsInfo = document.getElementById('fps-info');
     const zoomInfo = document.getElementById('zoom-info');
+    const offsetInfo = document.getElementById('offset-info');
 
-    if (resolutionInfo && fpsInfo && zoomInfo) {
+    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo) {
       const videoWidth = this.videoElement.videoWidth;
       const videoHeight = this.videoElement.videoHeight;
 
@@ -326,6 +382,40 @@ class CameraPiP {
 
       // Update zoom info
       zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+
+      // Update offset info
+      offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
+    }
+  }
+
+  // Force update webcam info regardless of visibility
+  forceUpdateWebcamInfo() {
+    const resolutionInfo = document.getElementById('resolution-info');
+    const fpsInfo = document.getElementById('fps-info');
+    const zoomInfo = document.getElementById('zoom-info');
+    const offsetInfo = document.getElementById('offset-info');
+
+    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo) {
+      const videoWidth = this.videoElement?.videoWidth;
+      const videoHeight = this.videoElement?.videoHeight;
+
+      if (videoWidth && videoHeight) {
+        resolutionInfo.textContent = `Res: ${videoWidth}x${videoHeight}`;
+
+        // Get actual FPS from video track
+        if (this.currentStream) {
+          const videoTracks = this.currentStream.getVideoTracks();
+          if (videoTracks.length > 0) {
+            const settings = videoTracks[0].getSettings();
+            const fps = settings.frameRate ? Math.round(settings.frameRate) : '--';
+            fpsInfo.textContent = `FPS: ${fps}`;
+          }
+        }
+      }
+
+      // Always update zoom and offset info
+      zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
+      offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
     }
   }
 
@@ -343,13 +433,34 @@ class CameraPiP {
     // Update current zoom
     this.currentZoom = adjustedZoomLevel;
 
-    // Apply zoom using CSS transform
-    // object-fit: cover in CSS already handles filling the window at 1.0x
-    this.videoElement.style.transform = `scale(${adjustedZoomLevel})`;
+    // Combine offset and zoom transforms - translate BEFORE scale
+    const offsetTransform = `translate(${this.currentOffsetX}px, ${this.currentOffsetY}px)`;
+    const zoomTransform = `scale(${adjustedZoomLevel})`;
+
+    this.videoElement.style.transform = `${offsetTransform} ${zoomTransform}`;
     this.videoElement.style.transformOrigin = 'center center';
 
-    // Update webcam info to show new zoom level
-    this.updateWebcamInfo();
+    // Force update webcam info regardless of visibility
+    this.forceUpdateWebcamInfo();
+  }
+
+  // Apply offset to video element
+  applyOffset(offsetX, offsetY) {
+    if (!this.videoElement) return;
+
+    // Update current offset
+    this.currentOffsetX = offsetX;
+    this.currentOffsetY = offsetY;
+
+    // Combine offset and zoom transforms - translate BEFORE scale
+    const offsetTransform = `translate(${offsetX}px, ${offsetY}px)`;
+    const zoomTransform = `scale(${this.currentZoom})`;
+
+    this.videoElement.style.transform = `${offsetTransform} ${zoomTransform}`;
+    this.videoElement.style.transformOrigin = 'center center';
+
+    // Force update webcam info regardless of visibility
+    this.forceUpdateWebcamInfo();
   }
 
   // Calculate minimum zoom level to fill window

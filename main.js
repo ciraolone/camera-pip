@@ -94,12 +94,31 @@ function createWindow() {
         if (input.key === '=' || input.key === '+') {
           lastKeyTime = currentTime;
           changeZoom('in');
+          event.preventDefault();
         } else if (input.key === '-') {
           lastKeyTime = currentTime;
           changeZoom('out');
+          event.preventDefault();
         } else if (input.key === '0') {
           lastKeyTime = currentTime;
           changeZoom('reset');
+          event.preventDefault();
+        } else if (input.key === 'ArrowUp') {
+          lastKeyTime = currentTime;
+          changeOffset('up');
+          event.preventDefault();
+        } else if (input.key === 'ArrowDown') {
+          lastKeyTime = currentTime;
+          changeOffset('down');
+          event.preventDefault();
+        } else if (input.key === 'ArrowLeft') {
+          lastKeyTime = currentTime;
+          changeOffset('left');
+          event.preventDefault();
+        } else if (input.key === 'ArrowRight') {
+          lastKeyTime = currentTime;
+          changeOffset('right');
+          event.preventDefault();
         }
       }
     }
@@ -114,7 +133,9 @@ function getSettings() {
     selectedDeviceId: store?.get('selectedDeviceId') || null,
     showWebcamInfo: store?.get('showWebcamInfo', false) || false,
     alwaysOnTop: store?.get('alwaysOnTop', false) || false,
-    zoomLevel: store?.get('zoomLevel', 1) || 1
+    zoomLevel: store?.get('zoomLevel', 1) || 1,
+    offsetX: store?.get('offsetX', 0) || 0,
+    offsetY: store?.get('offsetY', 0) || 0
   };
 }
 
@@ -184,6 +205,10 @@ function buildContextMenu(settings) {
           label: 'Zoom Reset',
           click: () => changeZoom('reset')
         },
+        {
+          label: 'Offset Reset',
+          click: () => changeOffset('reset')
+        },
         { type: 'separator' },
         {
           label: 'Info webcam',
@@ -239,6 +264,38 @@ function toggleAlwaysOnTop() {
 function notifySettingsChanged() {
   createMenu();
   mainWindow?.webContents.send('settings-changed');
+}
+
+// Offset management
+function changeOffset(direction) {
+  const settings = getSettings();
+  let newOffsetX = settings.offsetX;
+  let newOffsetY = settings.offsetY;
+  const step = 5; // Pixel per step
+
+  switch (direction) {
+    case 'up':
+      newOffsetY = Math.max(newOffsetY - step, -200);
+      break;
+    case 'down':
+      newOffsetY = Math.min(newOffsetY + step, 200);
+      break;
+    case 'left':
+      newOffsetX = Math.max(newOffsetX - step, -200);
+      break;
+    case 'right':
+      newOffsetX = Math.min(newOffsetX + step, 200);
+      break;
+    case 'reset':
+      newOffsetX = 0;
+      newOffsetY = 0;
+      break;
+  }
+
+  saveSettings({ offsetX: newOffsetX, offsetY: newOffsetY });
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('offset-changed', { x: newOffsetX, y: newOffsetY });
+  }
 }
 
 // Zoom management
@@ -304,6 +361,19 @@ function setupIPC() {
       // Don't send back to renderer to avoid loop
     } else {
       changeZoom(direction);
+    }
+  });
+
+  // Handle offset requests from renderer
+  ipcMain.on('offset-request', (event, direction, value) => {
+    if (direction === 'set-position' && typeof value === 'object') {
+      // Direct offset setting from renderer
+      const newOffsetX = Math.round(value.x);
+      const newOffsetY = Math.round(value.y);
+      saveSettings({ offsetX: newOffsetX, offsetY: newOffsetY });
+      // Don't send back to renderer to avoid loop
+    } else {
+      changeOffset(direction);
     }
   });
 }

@@ -5,12 +5,11 @@
 ## Descrizione del Progetto
 Applicazione Electron per Windows che mostra il feed della webcam in una finestra desktop. L'app è progettata per essere semplice, intuitiva e robusta, con un'interfaccia minimale e pulita.
 
-## Ambiente di Utilizzo
-- **Sistema Operativo**: Windows
+## Linee Guida per la Conversazione
+- **Concisione**: Risposte dirette, no saluti/ringraziamenti, no scuse
+- **Spiegazioni**: Linguaggio semplice, no tecnicismi complessi
 
-## Funzionalità Implementate
-
-### Core Features
+## Core Features
 - Selezione webcam da menu
 - Persistenza completa delle impostazioni
 - Ripristino automatico posizione/dimensioni finestra
@@ -19,8 +18,5 @@ Applicazione Electron per Windows che mostra il feed della webcam in una finestr
 
 
 ## Estensioni Future Pianificate
+- Possibilità di impostare e salvare i preset
 
-
-## Linee Guida per la Conversazione
-- **Concisione**: Risposte dirette, no saluti/ringraziamenti, no scuse
-- **Spiegazioni**: Linguaggio semplice, no tecnicismi complessi
