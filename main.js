@@ -47,6 +47,8 @@ function createWindow() {
     defaultHeight: APP_CONFIG.defaultHeight
   });
 
+  const settings = getSettings();
+
   mainWindow = new BrowserWindow({
     title: APP_CONFIG.title,
     x: windowState.x,
@@ -54,6 +56,7 @@ function createWindow() {
     width: windowState.width,
     height: windowState.height,
     autoHideMenuBar: true,
+    alwaysOnTop: settings.alwaysOnTop,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -77,7 +80,8 @@ function getSettings() {
     resolution: store?.get('resolution', APP_CONFIG.defaultResolution) || APP_CONFIG.defaultResolution,
     fps: store?.get('fps', APP_CONFIG.defaultFps) || APP_CONFIG.defaultFps,
     selectedDeviceId: store?.get('selectedDeviceId') || null,
-    showWebcamInfo: store?.get('showWebcamInfo', false) || false
+    showWebcamInfo: store?.get('showWebcamInfo', false) || false,
+    alwaysOnTop: store?.get('alwaysOnTop', false) || false
   };
 }
 
@@ -127,6 +131,13 @@ function createMenu() {
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
+        {
+          label: 'Always on Top',
+          type: 'checkbox',
+          checked: settings.alwaysOnTop,
+          click: () => toggleAlwaysOnTop()
+        },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     },
@@ -175,6 +186,14 @@ function toggleWebcamInfo() {
   saveSettings({ showWebcamInfo: newValue });
   notifySettingsChanged();
   mainWindow?.webContents.send('webcam-info-toggled', newValue);
+}
+
+function toggleAlwaysOnTop() {
+  const settings = getSettings();
+  const newValue = !settings.alwaysOnTop;
+  saveSettings({ alwaysOnTop: newValue });
+  mainWindow?.setAlwaysOnTop(newValue);
+  notifySettingsChanged();
 }
 
 function notifySettingsChanged() {
