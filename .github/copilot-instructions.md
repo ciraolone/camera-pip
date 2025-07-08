@@ -18,5 +18,6 @@ Applicazione Electron per Windows che mostra il feed della webcam in una finestr
 
 
 ## Estensioni Future Pianificate
+- Aggiungere un delay al flip per evitare il flickering e mettere un pelino di offset verso destra
 - Possibilità di impostare e salvare i preset
 

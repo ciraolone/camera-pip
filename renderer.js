@@ -16,6 +16,13 @@ class CameraPiP {
     this.lastKeyTime = 0;
     this.lastKeyTime = 0;
 
+    // Auto flip state management
+    this.autoFlipActive = false; // Tracks current flip state in auto mode
+    this.autoFlipThresholdActivate = 0.6; // 60% of screen to activate flip
+    this.autoFlipThresholdDeactivate = 0.4; // 40% of screen to deactivate flip
+    this.autoFlipTimer = null; // Timer for delayed flip activation
+    this.autoFlipDelay = 1000; // 1 second delay before flip changes
+
     this.init();
   }
 
@@ -144,10 +151,7 @@ class CameraPiP {
       this.applyFlip(this.currentFlip);
       // Update window info when resizing
       this.forceUpdateWebcamInfo();
-      // Check auto flip when window resizes
-      if (this.currentFlip === 'auto') {
-        this.applyAllTransformsWithFlip();
-      }
+      // Note: checkAutoFlip() is handled by the periodic interval, not needed here
     });
 
     // Window move/position change event
@@ -162,9 +166,9 @@ class CameraPiP {
       }
       // Check auto flip when window moves
       if (this.currentFlip === 'auto') {
-        this.applyAllTransformsWithFlip();
+        this.checkAutoFlip();
       }
-    }, 100); // Update every 100ms for smoother auto flip
+    }, 500); // Update every 500ms for smoother monitoring
   }
 
   // Start camera with optional device ID
@@ -553,8 +557,26 @@ class CameraPiP {
   applyFlip(flip) {
     if (!this.videoElement) return;
 
+    // Save previous flip mode to detect actual changes
+    const previousFlip = this.currentFlip;
+
     // Update current flip
     this.currentFlip = flip;
+
+    // Reset auto flip state and timer when changing flip mode
+    if (flip === 'auto') {
+      // When switching to auto mode, start with flip disabled
+      // BUT only if we're actually switching TO auto mode (not already in it)
+      if (previousFlip !== 'auto') {
+        this.autoFlipActive = false;
+      }
+    } else {
+      // Clear timer when switching away from auto mode
+      if (this.autoFlipTimer) {
+        clearTimeout(this.autoFlipTimer);
+        this.autoFlipTimer = null;
+      }
+    }
 
     // Apply transforms with flip consideration
     this.applyAllTransformsWithFlip();
@@ -593,22 +615,72 @@ class CameraPiP {
     this.minZoomLevel = 1.0;
   }
 
-  // Check if window is in the right half of the screen
-  isWindowInRightHalf() {
+  // Check window position as percentage of screen width
+  getWindowPositionPercentage() {
     const windowInfo = this.getWindowInfo();
     const screenWidth = window.screen.width;
     const windowCenterX = windowInfo.windowPosition.x + (windowInfo.windowSize.width / 2);
-    const screenCenterX = screenWidth / 2;
 
-    return windowCenterX > screenCenterX;
+    return windowCenterX / screenWidth;
   }
 
-  // Determine effective flip state (considering auto mode)
+  // Determine effective flip state (considering auto mode with hysteresis)
   getEffectiveFlip() {
     if (this.currentFlip === 'auto') {
-      return this.isWindowInRightHalf() ? 'flipped' : 'normal';
+      // In auto mode, return the state based on autoFlipActive only
+      // The timer system in checkAutoFlip() manages when to change this state
+      return this.autoFlipActive ? 'flipped' : 'normal';
     }
     return this.currentFlip;
+  }
+
+  // Check auto flip with delayed execution and timer reset
+  checkAutoFlip() {
+    if (this.currentFlip !== 'auto') return;
+
+    // If timer is already running, don't start a new check
+    if (this.autoFlipTimer) {
+      return;
+    }
+
+    // Check if flip state should change
+    const positionPercentage = this.getWindowPositionPercentage();
+    let shouldFlip = false;
+
+    if (!this.autoFlipActive) {
+      // Flip is currently off, check if we should activate it
+      shouldFlip = positionPercentage > this.autoFlipThresholdActivate;
+    } else {
+      // Flip is currently on, check if we should deactivate it
+      // Keep flip active unless position goes below deactivate threshold
+      shouldFlip = positionPercentage >= this.autoFlipThresholdDeactivate;
+    }
+
+    // Only proceed if there's a state change needed
+    const needsChange = shouldFlip !== this.autoFlipActive;
+
+    if (needsChange) {
+      // Set new timer to apply the change
+      this.autoFlipTimer = setTimeout(() => {
+        // Re-check position in case it changed during the delay
+        const currentPositionPercentage = this.getWindowPositionPercentage();
+        let finalShouldFlip = false;
+
+        if (!this.autoFlipActive) {
+          finalShouldFlip = currentPositionPercentage > this.autoFlipThresholdActivate;
+        } else {
+          finalShouldFlip = currentPositionPercentage >= this.autoFlipThresholdDeactivate;
+        }
+
+        // Apply the change if still needed
+        if (finalShouldFlip !== this.autoFlipActive) {
+          this.autoFlipActive = finalShouldFlip;
+          this.applyAllTransformsWithFlip();
+        }
+
+        this.autoFlipTimer = null;
+      }, this.autoFlipDelay);
+    }
   }
 }
 
