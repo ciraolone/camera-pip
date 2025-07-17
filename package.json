@@ -7,7 +7,7 @@
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "build": "electron-builder",
-    "build:win": "electron-builder --win",
+    "build:win": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite --ignore=dist --prune=true",
     "dist": "electron-builder --publish=never",
     "package": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite",
     "package:clean": "rmdir /s /q dist 2>nul & npm run package"
@@ -37,20 +37,12 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
-      "!node_modules/**/*",
-      "node_modules/electron-store/**/*",
-      "node_modules/electron-window-state/**/*"
+      "**/*"
     ],
     "win": {
-      "target": "portable",
-      "sign": false
-    },
-    "portable": {
-      "artifactName": "Camera-PiP-Portable.exe"
-    },
-    "buildDependenciesFromSource": false,
-    "nodeGypRebuild": false,
-    "npmRebuild": false
+      "target": "zip",
+      "sign": false,
+      "icon": null
+    }
   }
 }

@@ -25,6 +25,7 @@ const FPS_OPTIONS = [
   { label: 'Default', value: 'default' },
   { label: '60 FPS', value: 60 },
   { label: '59.94 FPS', value: 59.94 },
+  { label: '50 FPS', value: 50 },
   { label: '30 FPS', value: 30 },
   { label: '29.97 FPS', value: 29.97 },
   { label: '25 FPS', value: 25 },
