@@ -9,7 +9,8 @@
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "dist": "electron-builder --publish=never",
-    "package": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite"
+    "package": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite",
+    "package:clean": "rmdir /s /q dist 2>nul & npm run package"
   },
   "keywords": [
     "electron",
@@ -47,6 +48,9 @@
     },
     "portable": {
       "artifactName": "Camera-PiP-Portable.exe"
-    }
+    },
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "npmRebuild": false
   }
 }
