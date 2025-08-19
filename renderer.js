@@ -46,6 +46,7 @@ class CameraPiP {
       this.currentOffsetX = settings.offsetX || 0;
       this.currentOffsetY = settings.offsetY || 0;
       this.currentFlip = settings.flip || 'normal';
+      this.autoFlipActive = settings.autoFlipActive || false;
       this.updateWebcamInfoVisibility();
       this.applyZoom(this.currentZoom);
       this.applyOffset(this.currentOffsetX, this.currentOffsetY);
@@ -157,6 +158,33 @@ class CameraPiP {
     // Window move/position change event
     window.addEventListener('beforeunload', () => {
       this.forceUpdateWebcamInfo();
+    });
+
+    // Window focus event - check position immediately when window gets focus
+    window.addEventListener('focus', () => {
+      if (this.currentFlip === 'auto') {
+        // Clear any pending timer and check position immediately
+        if (this.autoFlipTimer) {
+          clearTimeout(this.autoFlipTimer);
+          this.autoFlipTimer = null;
+        }
+        this.checkAutoFlipImmediate();
+      }
+      if (this.showWebcamInfo) {
+        this.forceUpdateWebcamInfo();
+      }
+    });
+
+    // Page visibility change event - check position when page becomes visible
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.currentFlip === 'auto') {
+        // Clear any pending timer and check position immediately
+        if (this.autoFlipTimer) {
+          clearTimeout(this.autoFlipTimer);
+          this.autoFlipTimer = null;
+        }
+        this.checkAutoFlipImmediate();
+      }
     });
 
     // Update window info periodically for position changes
@@ -563,14 +591,8 @@ class CameraPiP {
     // Update current flip
     this.currentFlip = flip;
 
-    // Reset auto flip state and timer when changing flip mode
-    if (flip === 'auto') {
-      // When switching to auto mode, start with flip disabled
-      // BUT only if we're actually switching TO auto mode (not already in it)
-      if (previousFlip !== 'auto') {
-        this.autoFlipActive = false;
-      }
-    } else {
+    // Reset timer when changing flip mode, but preserve autoFlipActive state
+    if (flip !== 'auto') {
       // Clear timer when switching away from auto mode
       if (this.autoFlipTimer) {
         clearTimeout(this.autoFlipTimer);
@@ -676,10 +698,38 @@ class CameraPiP {
         if (finalShouldFlip !== this.autoFlipActive) {
           this.autoFlipActive = finalShouldFlip;
           this.applyAllTransformsWithFlip();
+          // Save the autoFlipActive state
+          window.electronAPI.send('auto-flip-state-changed', this.autoFlipActive);
         }
 
         this.autoFlipTimer = null;
       }, this.autoFlipDelay);
+    }
+  }
+
+  // Check auto flip immediately without delay (for window restore/focus events)
+  checkAutoFlipImmediate() {
+    if (this.currentFlip !== 'auto') return;
+
+    // Check current position
+    const positionPercentage = this.getWindowPositionPercentage();
+    let shouldFlip = false;
+
+    if (!this.autoFlipActive) {
+      // Flip is currently off, check if we should activate it
+      shouldFlip = positionPercentage > this.autoFlipThresholdActivate;
+    } else {
+      // Flip is currently on, check if we should deactivate it
+      // Keep flip active unless position goes below deactivate threshold
+      shouldFlip = positionPercentage >= this.autoFlipThresholdDeactivate;
+    }
+
+    // Apply the change immediately if needed
+    if (shouldFlip !== this.autoFlipActive) {
+      this.autoFlipActive = shouldFlip;
+      this.applyAllTransformsWithFlip();
+      // Save the autoFlipActive state
+      window.electronAPI.send('auto-flip-state-changed', this.autoFlipActive);
     }
   }
 }

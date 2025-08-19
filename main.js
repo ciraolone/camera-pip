@@ -150,7 +150,8 @@ function getSettings() {
     zoomLevel: store?.get('zoomLevel', 1) || 1,
     offsetX: store?.get('offsetX', 0) || 0,
     offsetY: store?.get('offsetY', 0) || 0,
-    flip: store?.get('flip', APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip
+    flip: store?.get('flip', APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip,
+    autoFlipActive: store?.get('autoFlipActive', false) || false
   };
 }
 
@@ -405,6 +406,11 @@ function setupIPC() {
     } else {
       changeOffset(direction);
     }
+  });
+
+  // Handle auto flip state changes from renderer
+  ipcMain.on('auto-flip-state-changed', (event, autoFlipActive) => {
+    saveSettings({ autoFlipActive });
   });
 }
 
