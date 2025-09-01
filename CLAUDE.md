@@ -83,11 +83,22 @@ npm run dev        # Avvia con logging abilitato
 
 ### Production
 ```bash
-npm run build      # Build con electron-builder
-npm run build:win  # Build specifico Windows con electron-packager
-npm run package    # Package per distribuzione
-npm run package:clean  # Pulisce dist/ e ricostruisce
+npm run build      # Build con electron-builder (ZIP con versioning)
 ```
+
+### Problemi Build Tools
+**electron-packager**: Non funziona su questo sistema a causa di errori di privilegi sui symbolic link per code signing. Genera errori come:
+```
+ERROR: Cannot create symbolic link : A required privilege is not held by the client
+```
+
+**electron-builder**: Funziona correttamente e crea ZIP file distribuibili con gestione automatica delle versioni.
+
+### Build System - Dettagli Implementazione
+- **Script build**: Cancella automaticamente la versione corrente esistente prima di ricrearla
+- **Naming**: `Camera-PiP-v{version}.zip` (es. `Camera-PiP-v1.1.0.zip`)
+- **Versioni precedenti**: Mantenute automaticamente in `dist/`
+- **Note package.json**: electron-builder funziona correttamente | electron-packager ha errori privilegi symbolic link
 
 ## Note Tecniche Specifiche
 
@@ -116,18 +127,77 @@ npm run package:clean  # Pulisce dist/ e ricostruisce
 - Sync bidirezionale main ↔ renderer
 - Auto-save per tutte le modifiche configurazione
 
+## Build System Completo
+
+### Build Tools Supportati
+- **electron-builder**: ✅ **FUNZIONANTE** - Tool principale per build e packaging
+- **electron-packager**: ❌ **NON FUNZIONANTE** - Errori privilegi symbolic link
+
+### Configurazione Build Ottimizzata
+La configurazione è stata ottimizzata per creare solo file ZIP versionati:
+
+#### package.json - sezione scripts:
+```json
+{
+  "build": "node -e \"const fs=require('fs'),path=require('path'),{version}=require('./package.json');const oldZip=path.join('dist',`Camera-PiP-v${version}.zip`);if(fs.existsSync(oldZip))fs.unlinkSync(oldZip);\" && electron-builder"
+}
+```
+
+#### package.json - sezione build:
+```json
+{
+  "build": {
+    "appId": "com.camerapip.app",
+    "productName": "Camera PiP",
+    "directories": {
+      "output": "dist"
+    },
+    "files": ["**/*"],
+    "win": {
+      "target": "zip",
+      "sign": false,
+      "icon": null,
+      "artifactName": "Camera-PiP-v${version}.${ext}"
+    }
+  }
+}
+```
+
+### Gestione Versioni Automatica
+- **Script intelligente**: Cancella automaticamente solo la versione corrente esistente
+- **Naming pattern**: `Camera-PiP-v{version}.zip` (es. `Camera-PiP-v1.1.0.zip`)
+- **Versioni precedenti**: Mantenute automaticamente in `dist/`
+- **Output pulito**: Solo file essenziali nel risultato finale
+
+### Problemi Risolti durante Sviluppo
+
+#### Problema Code Signing
+**Issue**: Errori di privilegi sui symbolic link durante download tool di code signing:
+```
+ERROR: Cannot create symbolic link : A required privilege is not held by the client
+```
+**Soluzione**: Configurato `"sign": false` - errori ignorabili, build funziona comunque
+
+#### Problema Configurazione artifactName
+**Issue**: `artifactName` a livello globale non funzionava con target ZIP
+**Soluzione**: Spostato `artifactName` dentro la sezione `win` specifica (da documentazione electron-builder)
+
+#### Problema Script Ridondanti  
+**Issue**: Multipli script di build (`build`, `build:win`, `dist`, `package`, `package:clean`)
+**Soluzione**: Eliminati tutti tranne `build` con electron-builder + script gestione versioni
+
 ## Dipendenze Principali
 
 - **electron**: ^28.0.0 - Framework applicazione
 - **electron-store**: ^10.1.0 - Persistenza settings
 - **electron-window-state**: ^5.0.3 - Gestione stato finestra
-- **electron-builder**: ^24.13.3 - Build e packaging
-- **electron-packager**: ^17.1.2 - Packaging alternativo
+- **electron-builder**: ^24.13.3 - Build e packaging (UNICO SUPPORTATO)
 
-## Build Target
+## Build Target Finale
 
 - **Platform**: Windows (win32)
 - **Architecture**: x64
-- **Output**: ZIP file in cartella `dist/`
+- **Output**: ZIP file versionato in cartella `dist/`
 - **App ID**: com.camerapip.app
 - **Product Name**: Camera PiP
+- **File risultante**: `Camera-PiP-v1.1.0.zip` (177MB circa)

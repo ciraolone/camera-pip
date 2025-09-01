@@ -1,16 +1,12 @@
 {
   "name": "camera-pip",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Simple webcam PiP application for Windows",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "build": "electron-builder",
-    "build:win": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite --ignore=dist --prune=true",
-    "dist": "electron-builder --publish=never",
-    "package": "electron-packager . Camera-PiP --platform=win32 --arch=x64 --out=dist --overwrite",
-    "package:clean": "rmdir /s /q dist 2>nul & npm run package"
+    "build": "node -e \"const fs=require('fs'),path=require('path'),{version}=require('./package.json');const oldZip=path.join('dist',`Camera-PiP-v${version}.zip`);if(fs.existsSync(oldZip))fs.unlinkSync(oldZip);\" && electron-builder"
   },
   "keywords": [
     "electron",
@@ -42,7 +38,8 @@
     "win": {
       "target": "zip",
       "sign": false,
-      "icon": null
+      "icon": null,
+      "artifactName": "Camera-PiP-v${version}.${ext}"
     }
   }
 }
