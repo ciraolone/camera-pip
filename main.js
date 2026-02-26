@@ -80,6 +80,7 @@ function createWindow() {
     alwaysOnTop: settings.alwaysOnTop,
     frame: false,
     skipTaskbar: false,
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -111,10 +112,8 @@ function createWindow() {
     }
   });
 
-  mainWindow.on("minimize", (event) => {
-    event.preventDefault();
-    mainWindow.hide();
-    updateTrayMenu(); // Update Show/Hide text
+  mainWindow.on("minimize", () => {
+    updateTrayMenu();
   });
 
   mainWindow.on("show", () => {
