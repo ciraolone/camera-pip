@@ -79,7 +79,7 @@ function createWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: settings.alwaysOnTop,
     frame: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -514,6 +514,20 @@ async function initialize() {
     console.error("Initialization error:", error);
     app.quit();
   }
+}
+
+// Single instance lock
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 }
 
 // App events
