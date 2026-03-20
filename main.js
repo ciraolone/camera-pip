@@ -4,8 +4,6 @@ const {
   Menu,
   ipcMain,
   systemPreferences,
-  Tray,
-  nativeImage,
 } = require("electron");
 const path = require("path");
 const windowStateKeeper = require("electron-window-state");
@@ -49,9 +47,7 @@ const FLIP_OPTIONS = [
 // Global state
 let store;
 let mainWindow;
-let tray;
 let videoDevices = [];
-let keyDebounceTimer = null;
 let lastKeyTime = 0;
 const KEY_DEBOUNCE_DELAY = 150; // Milliseconds
 
@@ -79,7 +75,7 @@ function createWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: settings.alwaysOnTop,
     frame: false,
-    skipTaskbar: false,
+    skipTaskbar: true,
     icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -93,35 +89,15 @@ function createWindow() {
   windowState.manage(mainWindow);
   mainWindow.loadFile("index.html");
 
-  // Remove context menu from window since we're using tray
-  // mainWindow.webContents.on("context-menu", (e, params) => {
-  //   const settings = getSettings();
-  //   const contextMenu = buildContextMenu(settings);
-  //   contextMenu.popup(mainWindow, params.x, params.y);
-  // });
+  mainWindow.webContents.on("context-menu", (e, params) => {
+    e.preventDefault();
+    const settings = getSettings();
+    const contextMenu = buildContextMenu(settings);
+    contextMenu.popup({ window: mainWindow, x: params.x, y: params.y });
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
-  });
-
-  mainWindow.on("close", (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
-      updateTrayMenu(); // Update Show/Hide text
-    }
-  });
-
-  mainWindow.on("minimize", () => {
-    updateTrayMenu();
-  });
-
-  mainWindow.on("show", () => {
-    updateTrayMenu(); // Update Show/Hide text
-  });
-
-  mainWindow.on("hide", () => {
-    updateTrayMenu(); // Update Show/Hide text
   });
 
   // Setup keyboard shortcuts
@@ -201,43 +177,8 @@ function saveSettings(settings) {
   });
 }
 
-// Tray management
-function createTray() {
-  // Use the provided icon.png for tray
-  const iconPath = path.join(__dirname, "icon.png");
-  const icon = nativeImage.createFromPath(iconPath);
-  
-  // Resize to appropriate tray size for Windows (16x16)
-  const resizedIcon = icon.resize({ width: 16, height: 16 });
-  
-  tray = new Tray(resizedIcon);
-  tray.setToolTip("Camera PiP");
-  
-  updateTrayMenu();
-  
-  // Show/hide window on tray click
-  tray.on("click", () => {
-    if (mainWindow) {
-      if (mainWindow.isVisible()) {
-        mainWindow.hide();
-      } else {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    }
-  });
-}
-
-function updateTrayMenu() {
-  if (!tray) return;
-  
-  const settings = getSettings();
-  const contextMenu = buildTrayMenu(settings);
-  tray.setContextMenu(contextMenu);
-}
-
 // Menu management
-function buildTrayMenu(settings) {
+function buildContextMenu(settings) {
   const deviceSubmenu =
     videoDevices.length > 0
       ? videoDevices.map((device) => ({
@@ -270,20 +211,6 @@ function buildTrayMenu(settings) {
   }));
 
   const template = [
-    {
-      label: mainWindow && mainWindow.isVisible() ? "Hide" : "Show",
-      click: () => {
-        if (mainWindow) {
-          if (mainWindow.isVisible()) {
-            mainWindow.hide();
-          } else {
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        }
-      },
-    },
-    { type: "separator" },
     { label: "Camera", submenu: deviceSubmenu },
     { type: "separator" },
     { label: "Resolution", submenu: resolutionSubmenu },
@@ -321,16 +248,6 @@ function buildTrayMenu(settings) {
   return Menu.buildFromTemplate(template);
 }
 
-function buildContextMenu(settings) {
-  // Deprecated - using tray menu instead
-  return buildTrayMenu(settings);
-}
-
-function createMenu() {
-  // Remove application menu bar
-  Menu.setApplicationMenu(null);
-}
-
 // Device selection
 function selectDevice(deviceId) {
   saveSettings({ selectedDeviceId: deviceId });
@@ -351,7 +268,6 @@ function changeFps(fps) {
 function changeFlip(flip) {
   saveSettings({ flip });
   // Don't call notifySettingsChanged() to avoid camera restart
-  updateTrayMenu(); // Just update the menu
   mainWindow?.webContents.send("flip-changed", flip);
 }
 
@@ -372,7 +288,6 @@ function toggleAlwaysOnTop() {
 }
 
 function notifySettingsChanged() {
-  updateTrayMenu();
   mainWindow?.webContents.send("settings-changed");
 }
 
@@ -445,7 +360,6 @@ async function requestCameraPermission() {
 function setupIPC() {
   ipcMain.on("devices-updated", (event, devices) => {
     videoDevices = devices.filter((device) => device.kind === "videoinput");
-    updateTrayMenu();
   });
 
   ipcMain.handle("get-settings", () => getSettings());
@@ -454,7 +368,6 @@ function setupIPC() {
   ipcMain.on("device-active", (event, deviceId) => {
     if (deviceId) {
       saveSettings({ selectedDeviceId: deviceId });
-      updateTrayMenu(); // Update menu to reflect active device
     }
   });
 
@@ -507,7 +420,6 @@ async function initialize() {
       return;
     }
 
-    createTray();
     createWindow();
   } catch (error) {
     console.error("Initialization error:", error);
@@ -545,10 +457,6 @@ app.on("activate", () => {
     mainWindow.show();
     mainWindow.focus();
   }
-});
-
-app.on("before-quit", () => {
-  app.isQuitting = true;
 });
 
 // Error handling
