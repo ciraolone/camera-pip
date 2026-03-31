@@ -75,7 +75,7 @@ function createWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: settings.alwaysOnTop,
     frame: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -86,6 +86,7 @@ function createWindow() {
     },
   });
 
+  Menu.setApplicationMenu(null);
   windowState.manage(mainWindow);
   mainWindow.loadFile("index.html");
 
