@@ -2,11 +2,16 @@ const {
   app,
   BrowserWindow,
   Menu,
+  Tray,
+  nativeImage,
   ipcMain,
   systemPreferences,
 } = require("electron");
 const path = require("path");
 const windowStateKeeper = require("electron-window-state");
+
+// Set AppUserModelId early so Windows correctly associates window and taskbar button
+app.setAppUserModelId("com.camerapip.app");
 
 // Constants
 const APP_CONFIG = {
@@ -47,6 +52,7 @@ const FLIP_OPTIONS = [
 // Global state
 let store;
 let mainWindow;
+let tray;
 let videoDevices = [];
 let lastKeyTime = 0;
 const KEY_DEBOUNCE_DELAY = 150; // Milliseconds
@@ -75,8 +81,11 @@ function createWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: settings.alwaysOnTop,
     frame: false,
-    skipTaskbar: false,
-    icon: path.join(__dirname, "icon.png"),
+    // skipTaskbar is user-configurable: frameless Electron windows flash the
+    // taskbar button when moved by external tools (AltSnap, etc.). Setting it
+    // true hides the button — the tray icon is always present to restore.
+    skipTaskbar: settings.skipTaskbar,
+    icon: path.join(__dirname, "icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -100,6 +109,11 @@ function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  mainWindow.on("show", updateTrayMenu);
+  mainWindow.on("hide", updateTrayMenu);
+  mainWindow.on("minimize", updateTrayMenu);
+  mainWindow.on("restore", updateTrayMenu);
 
   // Setup keyboard shortcuts
   mainWindow.webContents.on("before-input-event", (event, input) => {
@@ -150,6 +164,40 @@ function createWindow() {
   });
 }
 
+// Tray management
+function toggleWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    mainWindow.hide();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const isVisible = mainWindow?.isVisible() && !mainWindow?.isMinimized();
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: isVisible ? "Hide" : "Show", click: toggleWindow },
+      { type: "separator" },
+      { role: "quit" },
+    ])
+  );
+}
+
+function createTray() {
+  const icon = nativeImage
+    .createFromPath(path.join(__dirname, "icon.ico"))
+    .resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip("Camera PiP");
+  tray.on("click", toggleWindow);
+  updateTrayMenu();
+}
+
 // Settings management
 function getSettings() {
   return {
@@ -165,6 +213,7 @@ function getSettings() {
     offsetY: store?.get("offsetY", 0) || 0,
     flip: store?.get("flip", APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip,
     autoFlipActive: store?.get("autoFlipActive", false) || false,
+    skipTaskbar: store?.get("skipTaskbar", false) || false,
   };
 }
 
@@ -223,6 +272,12 @@ function buildContextMenu(settings) {
       type: "checkbox",
       checked: settings.alwaysOnTop,
       click: () => toggleAlwaysOnTop(),
+    },
+    {
+      label: "Hide from Taskbar",
+      type: "checkbox",
+      checked: settings.skipTaskbar,
+      click: () => toggleSkipTaskbar(),
     },
     {
       label: "Info webcam",
@@ -285,7 +340,13 @@ function toggleAlwaysOnTop() {
   const newValue = !settings.alwaysOnTop;
   saveSettings({ alwaysOnTop: newValue });
   mainWindow?.setAlwaysOnTop(newValue);
-  notifySettingsChanged();
+}
+
+function toggleSkipTaskbar() {
+  const settings = getSettings();
+  const newValue = !settings.skipTaskbar;
+  saveSettings({ skipTaskbar: newValue });
+  mainWindow?.setSkipTaskbar(newValue);
 }
 
 function notifySettingsChanged() {
@@ -422,6 +483,7 @@ async function initialize() {
     }
 
     createWindow();
+    createTray();
   } catch (error) {
     console.error("Initialization error:", error);
     app.quit();
