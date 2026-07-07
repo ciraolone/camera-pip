@@ -1,0 +1,61 @@
+# Plan: Face tracking
+
+## Sintesi
+
+Rilevamento del volto nel renderer con MediaPipe Tasks Vision (runtime WASM e modello BlazeFace vendorizzati in locale, zero rete), e un loop di inseguimento che pilota i meccanismi esistenti di zoom/offset tramite `applyZoom`/`applyOffset` e persiste lo stato con i canali IPC `set-level`/`set-position` già presenti. Tutta la logica nuova vive in `face-tracker.js`; `main.js` aggiunge le chiavi di settings, la voce di menu e lo spegnimento del tracking sui comandi manuali.
+
+## File coinvolti
+
+- `face-tracker.js` (nuovo) — classe `FaceTracker`: ciclo di vita (enable/disable, sospensioni), loop di detection a cadenza ridotta sul `<video>`, loop di movimento a requestAnimationFrame e persistenza throttled. Delega le decisioni a `face-chase-policy.js` e l'integrazione del moto a `face-motion.js`.
+- `face-chase-policy.js` (nuovo) — politica di inseguimento: zona morta con isteresi e ritardo di partenza, minimo zoom necessario con anti flip-flop, release dello zoom quando non è più indispensabile, ritorno alla vista neutra, velocità adattiva.
+- `face-motion.js` (nuovo) — molla criticamente smorzata per offset e zoom: accelerazione dolce, decelerazione senza oltrepassare il bersaglio, azzeramento della velocità della componente bloccata dal clamp.
+- `mediapipe-loader.js` (nuovo) — caricamento di MediaPipe: legge bundle, runtime WASM e modello da `vendor/mediapipe/` via IPC (`read-vendor-file`), li serve come blob URL / buffer e restituisce il `FaceDetector` pronto.
+- `face-tracker-view.js` (nuovo) — matematica pura della vista: geometria video/finestra, offset per il bersaglio, errore a schermo, clamp ai bordi, minimo zoom necessario. Funzioni pure senza stato.
+- `face-selection.js` (nuovo) — selezione del volto da inseguire: il più grande con isteresi anti-salto, centro-occhi dai keypoint. Funzioni pure senza stato.
+- `face-tracker-tuning.js` (nuovo) — tutte le manopole di taratura in un file solo (costanti + mappe livello → valore fisico per i setting a livelli), pensato per la sessione di taratura dal vivo. I file del tracking sono separati per responsabilità e per restare tutti sotto le 200 righe.
+- `renderer.js` — istanzia `FaceTracker` passandogli il video element e i callback (`applyZoom`, `applyOffset`, `getEffectiveFlip`); smista gli eventi IPC `face-tracking-changed` e `face-tracking-zoom-changed`. Aggiunte minime, la logica sta nel tracker.
+- `main.js` — chiavi store `faceTracking`, `faceTrackingMaxZoom`, `faceTrackingSpeed`, `faceTrackingDelay`, `faceTrackingTolerance`; voci di menu (checkbox "Face Tracking" + submenu radio Tracking Zoom/Speed/Delay/Tolerance); spegnimento del tracking nei path manuali `changeZoom`/`changeOffset`; invio eventi IPC; handler `read-vendor-file` (whitelist dei soli 4 file di `vendor/mediapipe/`).
+- `preload.js` — whitelist canali: aggiungere `face-tracking-changed` e `face-tracking-tuning-changed` a `receive` e `read-vendor-file` a `invoke`; `send` passa a varargs (`set-level`/`set-position` viaggiano con due argomenti, prima ne passava uno solo).
+- `index.html` — CSP: aggiungere `'wasm-unsafe-eval'` e `blob:` a `script-src` e `blob:` a `connect-src` (il runtime WASM viene servito come blob URL, vedi decisione sotto); `<script>` per `mediapipe-loader.js` e `face-tracker.js` prima di `renderer.js`.
+- `vendor/mediapipe/` (cartella nuova, concordata con l'utente) — file WASM di tasks-vision + `blaze_face_short_range.tflite`, committati nel repo.
+- `package.json` — dipendenza `@mediapipe/tasks-vision`.
+
+## Decisioni di design
+
+- **Libreria: `@mediapipe/tasks-vision` (FaceDetector, modello BlazeFace short-range)**. Mantenuta da Google, gira in WASM dentro il renderer senza rete, API `detectForVideo` pensata per un `<video>`. Alternative scartate: face-api.js (non mantenuta), tfjs-models/blazeface (si porta dietro tutto tfjs), Shape Detection API (supporto instabile su Windows).
+- **Asset vendorizzati e committati**: il modello `.tflite` non è distribuito nel pacchetto npm e il runtime WASM va referenziato con un path stabile; il CDN è escluso (non-goal privacy + CSP `connect-src 'self'`). Si copiano una volta in `vendor/mediapipe/` e si committano. Solo la variante SIMD del runtime (supportata da qualsiasi CPU su cui gira Chromium 120); `@mediapipe/tasks-vision` sta in `devDependencies` perché a runtime si usano solo le copie vendorizzate.
+- **Caricamento via IPC + blob URL, niente fetch su `file://`**: Chromium blocca `fetch`/`XHR` verso `file://` anche in Electron, quindi il runtime WASM e il modello non si possono referenziare con path relativi. Il main legge i file da `vendor/mediapipe/` (handler `read-vendor-file` con whitelist rigida) e il renderer li monta come blob URL (bundle e runtime) o passa i byte direttamente (`modelAssetBuffer`). Alternativa scartata: protocollo custom `app://` (più macchinario in main per lo stesso risultato).
+- **Tutta la pipeline nel renderer**: la detection legge direttamente il `<video>` già attivo, il loop applica le trasformazioni con i metodi esistenti. Il main resta l'unico proprietario dei settings; il tracker persiste zoom/offset con i canali esistenti `zoom-request set-level` / `offset-request set-position`, throttled (~1s), che non fanno echo verso il renderer.
+- **Distinzione manuale/automatico già gratis**: i path `changeZoom`/`changeOffset` (tastiera e menu) sono separati dai path `set-level`/`set-position` (renderer). I primi spegneranno il tracking, i secondi no. Nessun flag aggiuntivo.
+- **Cadenza doppia**: detection a ~7 Hz (CPU bassa, la delicatezza non richiede reattività istantanea), movimento a `requestAnimationFrame` con inseguimento esponenziale verso il target e zona morta attorno al bersaglio (micro-movimenti ignorati).
+- **Zoom del tracking**: unico setting `faceTrackingMaxZoom` con valori Off / 1.5x / 2x / 3x in submenu radio (stesso pattern di RESOLUTIONS/FPS_OPTIONS). Default 1.5x: con default Off e zoom utente a 1.0x il tracking non avrebbe margine di manovra e sembrerebbe rotto al primo uso.
+- **Bersaglio**: volto centrato in orizzontale, occhi a ~1/3 dall'alto (assunzione dello spec), espresso come frazioni della finestra in costanti di taratura.
+- **Setting di taratura a livelli**: velocità (1–5), ritardo di partenza (0–2s a passi di 0.5) e tolleranza (1–5) come submenu radio, stesso pattern degli altri. I livelli sono chiavi di mappe livello → valore fisico in `face-tracker-tuning.js`: il menu resta semplice e i valori fisici si ritarano senza toccare menu né settings. Un unico canale `face-tracking-tuning-changed` porta l'intero oggetto di taratura (maxZoom compreso; sostituisce `face-tracking-zoom-changed`): un solo modo di propagare la taratura.
+- **Zoom sempre al minimo indispensabile**: oltre alla salita minima durante l'inseguimento, un release continuo riporta giù lo zoom appena un valore minore basta, anche a inseguimento fermo, compensando gli offset perché il volto resti fermo sullo schermo durante il rientro.
+- **Movimento a molla criticamente smorzata** (`face-motion.js`): sostituisce l'inseguimento esponenziale per avere partenza e arrivo graduali senza oltrepassare il bersaglio. I livelli di velocità mappano su `TRACKING_SPEED_OMEGAS` (rad/s); il livello 4 replica il passo percepito della versione esponenziale (τ≈900ms). Il clamp ai bordi azzera la velocità della componente bloccata (niente carica residua).
+- **Velocità adattiva**: il passo della molla è moltiplicato per un boost che cresce con la distanza dal bersaglio e satura al doppio (`adaptiveSpeedGain`/`adaptiveSpeedSpan`): correzioni piccole lentissime, spostamenti ampi più decisi.
+- **Filtro anti-tremolio**: media mobile esponenziale sul centro-occhi a ogni detection (`faceSmoothingAlpha`), con ripartenza secca oltre `sameFaceMaxDistance` per non trascinare la posizione fra volti diversi o dopo spostamenti repentini.
+- **Risparmio CPU**: detection sospesa quando il tracking è spento o la finestra è nascosta (`document.hidden`).
+
+## Dipendenze esterne
+
+`@mediapipe/tasks-vision` (runtime e modello vendorizzati in `vendor/mediapipe/`).
+
+## Invarianti
+
+- Clamp ai bordi: per ogni asse `|offset| ≤ max(0, (dimensione area video visibile × zoom − dimensione finestra) / 2)`, ricalcolato a ogni passo del loop e a ogni cambio di zoom o resize. È l'implementazione dello scenario "mai oltre i bordi"; l'area di riferimento è il video effettivamente visibile (con `object-fit: contain` può essere più piccola dell'elemento per camere non-16:9).
+- Le coordinate del volto arrivano dal frame raw (mai specchiato): con flip effettivo attivo va invertito l'asse X prima di calcolare il target. Il flip effettivo si legge da `getEffectiveFlip()` (copre anche il flip auto).
+- Un solo scrittore di trasformazioni: il tracker passa sempre da `applyZoom`/`applyOffset` di CameraPiP, mai da `style.transform` diretto.
+- I handler main di `set-level`/`set-position` non rimandano l'evento al renderer (già così — altrimenti loop infinito con il tracker).
+- `faceTrackingMaxZoom` ≤ 5 (limite massimo esistente di `changeZoom`).
+
+## Eccezioni alle rules
+
+- **Dimensioni file (≤200 righe)** — `renderer.js` (~740 righe) e `main.js` (~530 righe) erano già oltre il limite prima di questa feature. Serve toccarli: le aggiunte sono minime e seguono i pattern esistenti (istanziare il tracker e smistare eventi IPC nel renderer; submenu radio, settings e handler IPC nel main); tutta la logica nuova vive nei file del tracking. Alternativa rifiutata: spezzarli in moduli in questa feature (fuori scope, rischio regressioni su un'app stabile e senza test automatici).
+- **Lunghezza funzioni (≤40 righe)** — `buildContextMenu` in `main.js` era già a ~74 righe prima di questa feature; le voci nuove (checkbox + submenu, ~14 righe) seguono il pattern esistente dei submenu radio. Alternativa rifiutata: estrarre builder per ogni sezione del menu (refactor fuori scope, stesso motivo di sopra).
+
+## Rischi noti
+
+- MediaPipe WASM sotto `file://` con CSP: mitigato con la strategia IPC + blob URL (vedi decisione) e `'wasm-unsafe-eval'`; se non converge, fallback su tfjs blazeface. Da validare per primo (T1), prima di costruirci sopra.
+- La "delicatezza" è taratura pura: i valori giusti di zona morta, velocità e soglie emergono solo dal vivo; prevista una sessione dedicata con l'utente a fine ondata (T11).
+- CPU su macchine deboli: cadenza ridotta e sospensione a finestra nascosta; se non basta, si abbassa ulteriormente la cadenza di detection.

@@ -4,7 +4,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self';">
+  <!-- blob: e 'wasm-unsafe-eval' servono al face tracking: bundle e runtime WASM
+       di MediaPipe vengono montati come blob URL perché fetch/XHR verso file://
+       è bloccato da Chromium (vedi mediapipe-loader.js e plan della feature 001). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self' blob:;">
   <title>Ciraolone</title>
   <style>
     * {
@@ -86,6 +89,13 @@
     <div id="window-size-info">Finestra: --</div>
     <div id="window-distance-info">Distance: --</div>
   </div>
+  <script src="mediapipe-loader.js"></script>
+  <script src="face-tracker-tuning.js"></script>
+  <script src="face-selection.js"></script>
+  <script src="face-tracker-view.js"></script>
+  <script src="face-motion.js"></script>
+  <script src="face-chase-policy.js"></script>
+  <script src="face-tracker.js"></script>
   <script src="renderer.js"></script>
 </body>
 

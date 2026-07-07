@@ -1,3 +1,14 @@
+/**
+ * Processo main di Electron. Crea la finestra frameless e la tray icon,
+ * possiede i settings (electron-store) e li serve al renderer via IPC,
+ * costruisce il menu contestuale del tasto destro (camera, risoluzione, fps,
+ * flip, face tracking, finestra) e gestisce le scorciatoie da tastiera. I
+ * comandi manuali di zoom/offset passano da changeZoom/changeOffset e
+ * spengono il face tracking; il renderer persiste i valori del tracking con
+ * i canali set-level/set-position, che salvano senza rimandare l'evento.
+ * Serve anche i file di vendor/mediapipe/ al renderer (read-vendor-file).
+ */
+
 const {
   app,
   BrowserWindow,
@@ -8,6 +19,7 @@ const {
   systemPreferences,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const windowStateKeeper = require("electron-window-state");
 
 // Set AppUserModelId early so Windows correctly associates window and taskbar button
@@ -47,6 +59,50 @@ const FLIP_OPTIONS = [
   { label: "Normal", value: "normal" },
   { label: "Flipped", value: "flipped" },
   { label: "Auto", value: "auto" },
+];
+
+// 0 = Off: il tracking sposta solo l'inquadratura, senza mai toccare lo zoom
+const TRACKING_ZOOM_OPTIONS = [
+  { label: "Off", value: 0 },
+  { label: "1.5x", value: 1.5 },
+  { label: "2x", value: 2 },
+  { label: "3x", value: 3 },
+];
+
+// I livelli di velocità e tolleranza sono chiavi delle scale fisiche definite
+// in face-tracker-tuning.js: qui vive solo la scelta dell'utente
+const TRACKING_SPEED_OPTIONS = [
+  { label: "1 (slowest)", value: 1 },
+  { label: "2", value: 2 },
+  { label: "3", value: 3 },
+  { label: "4", value: 4 },
+  { label: "5 (fastest)", value: 5 },
+];
+
+// Attesa prima che l'inseguimento parta dopo uno spostamento, in secondi
+const TRACKING_DELAY_OPTIONS = [
+  { label: "Off", value: 0 },
+  { label: "0.5s", value: 0.5 },
+  { label: "1s", value: 1 },
+  { label: "1.5s", value: 1.5 },
+  { label: "2s", value: 2 },
+];
+
+// Quanto il volto può allontanarsi dal bersaglio prima che l'inseguimento parta
+const TRACKING_TOLERANCE_OPTIONS = [
+  { label: "1 (smallest)", value: 1 },
+  { label: "2", value: 2 },
+  { label: "3", value: 3 },
+  { label: "4", value: 4 },
+  { label: "5 (largest)", value: 5 },
+];
+
+// Unici file serviti dal handler read-vendor-file: whitelist rigida
+const VENDOR_MEDIAPIPE_FILES = [
+  "vision_bundle.mjs",
+  "vision_wasm_internal.js",
+  "vision_wasm_internal.wasm",
+  "blaze_face_short_range.tflite",
 ];
 
 // Global state
@@ -214,6 +270,12 @@ function getSettings() {
     flip: store?.get("flip", APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip,
     autoFlipActive: store?.get("autoFlipActive", false) || false,
     skipTaskbar: store?.get("skipTaskbar", false) || false,
+    faceTracking: store ? store.get("faceTracking", false) : false,
+    // Niente "|| default": 0 (Off) è un valore valido e "||" lo mangerebbe
+    faceTrackingMaxZoom: store ? store.get("faceTrackingMaxZoom", 1.5) : 1.5,
+    faceTrackingSpeed: store ? store.get("faceTrackingSpeed", 3) : 3,
+    faceTrackingDelay: store ? store.get("faceTrackingDelay", 0) : 0,
+    faceTrackingTolerance: store ? store.get("faceTrackingTolerance", 3) : 3,
   };
 }
 
@@ -228,6 +290,25 @@ function saveSettings(settings) {
 }
 
 // Menu management
+function buildRadioSubmenu(options, currentValue, onSelect) {
+  return options.map((option) => ({
+    label: option.label,
+    type: "radio",
+    checked: option.value === currentValue,
+    click: () => onSelect(option.value),
+  }));
+}
+
+function buildTrackingSubmenus(settings) {
+  const forKey = (key) => (value) => changeTrackingSetting(key, value);
+  return [
+    { label: "Tracking Zoom", submenu: buildRadioSubmenu(TRACKING_ZOOM_OPTIONS, settings.faceTrackingMaxZoom, forKey("faceTrackingMaxZoom")) },
+    { label: "Tracking Speed", submenu: buildRadioSubmenu(TRACKING_SPEED_OPTIONS, settings.faceTrackingSpeed, forKey("faceTrackingSpeed")) },
+    { label: "Tracking Delay", submenu: buildRadioSubmenu(TRACKING_DELAY_OPTIONS, settings.faceTrackingDelay, forKey("faceTrackingDelay")) },
+    { label: "Tracking Tolerance", submenu: buildRadioSubmenu(TRACKING_TOLERANCE_OPTIONS, settings.faceTrackingTolerance, forKey("faceTrackingTolerance")) },
+  ];
+}
+
 function buildContextMenu(settings) {
   const deviceSubmenu =
     videoDevices.length > 0
@@ -239,26 +320,9 @@ function buildContextMenu(settings) {
         }))
       : [{ label: "No cameras found", enabled: false }];
 
-  const resolutionSubmenu = RESOLUTIONS.map((res) => ({
-    label: res.label,
-    type: "radio",
-    checked: res.value === settings.resolution,
-    click: () => changeResolution(res.value),
-  }));
-
-  const fpsSubmenu = FPS_OPTIONS.map((fps) => ({
-    label: fps.label,
-    type: "radio",
-    checked: fps.value === settings.fps,
-    click: () => changeFps(fps.value),
-  }));
-
-  const flipSubmenu = FLIP_OPTIONS.map((flip) => ({
-    label: flip.label,
-    type: "radio",
-    checked: flip.value === settings.flip,
-    click: () => changeFlip(flip.value),
-  }));
+  const resolutionSubmenu = buildRadioSubmenu(RESOLUTIONS, settings.resolution, changeResolution);
+  const fpsSubmenu = buildRadioSubmenu(FPS_OPTIONS, settings.fps, changeFps);
+  const flipSubmenu = buildRadioSubmenu(FLIP_OPTIONS, settings.flip, changeFlip);
 
   const template = [
     { label: "Camera", submenu: deviceSubmenu },
@@ -266,6 +330,14 @@ function buildContextMenu(settings) {
     { label: "Resolution", submenu: resolutionSubmenu },
     { label: "Frame Rate", submenu: fpsSubmenu },
     { label: "Flip", submenu: flipSubmenu },
+    { type: "separator" },
+    {
+      label: "Face Tracking",
+      type: "checkbox",
+      checked: settings.faceTracking,
+      click: () => toggleFaceTracking(),
+    },
+    ...buildTrackingSubmenus(settings),
     { type: "separator" },
     {
       label: "Always on Top",
@@ -327,6 +399,41 @@ function changeFlip(flip) {
   mainWindow?.webContents.send("flip-changed", flip);
 }
 
+// Face tracking management
+function toggleFaceTracking() {
+  const settings = getSettings();
+  const newValue = !settings.faceTracking;
+  saveSettings({ faceTracking: newValue });
+  mainWindow?.webContents.send("face-tracking-changed", newValue);
+}
+
+function changeTrackingSetting(key, value) {
+  saveSettings({ [key]: value });
+  mainWindow?.webContents.send("face-tracking-tuning-changed", getTrackingTuning());
+}
+
+// L'oggetto di taratura viaggia sempre intero sul canale unico
+// face-tracking-tuning-changed: un solo modo di propagarla al renderer
+function getTrackingTuning() {
+  const settings = getSettings();
+  return {
+    maxZoom: settings.faceTrackingMaxZoom,
+    speed: settings.faceTrackingSpeed,
+    delaySeconds: settings.faceTrackingDelay,
+    tolerance: settings.faceTrackingTolerance,
+  };
+}
+
+// Qualsiasi comando manuale di zoom/offset ridà il controllo all'utente:
+// il tracking si spegne e la spunta nel menu sparisce (scenario
+// "Attivazione e disattivazione" della feature 001)
+function disableFaceTrackingForManualCommand() {
+  const settings = getSettings();
+  if (!settings.faceTracking) return;
+  saveSettings({ faceTracking: false });
+  mainWindow?.webContents.send("face-tracking-changed", false);
+}
+
 function toggleWebcamInfo() {
   const settings = getSettings();
   const newValue = !settings.showWebcamInfo;
@@ -355,6 +462,7 @@ function notifySettingsChanged() {
 
 // Offset management
 function changeOffset(direction) {
+  disableFaceTrackingForManualCommand();
   const settings = getSettings();
   let newOffsetX = settings.offsetX;
   let newOffsetY = settings.offsetY;
@@ -390,6 +498,7 @@ function changeOffset(direction) {
 
 // Zoom management
 function changeZoom(direction) {
+  disableFaceTrackingForManualCommand();
   const settings = getSettings();
   let newZoomLevel = settings.zoomLevel;
 
@@ -468,6 +577,15 @@ function setupIPC() {
   // Handle auto flip state changes from renderer
   ipcMain.on("auto-flip-state-changed", (event, autoFlipActive) => {
     saveSettings({ autoFlipActive });
+  });
+
+  // I file di vendor/mediapipe (bundle, wasm, modello) si servono via IPC
+  // perché fetch/XHR verso file:// è bloccato da Chromium — vedi plan 001
+  ipcMain.handle("read-vendor-file", (event, fileName) => {
+    if (!VENDOR_MEDIAPIPE_FILES.includes(fileName)) {
+      throw new Error(`Vendor file non consentito: ${fileName}`);
+    }
+    return fs.readFileSync(path.join(__dirname, "vendor", "mediapipe", fileName));
   });
 }
 

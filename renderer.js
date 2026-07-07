@@ -1,4 +1,13 @@
-// Camera PiP Renderer
+/**
+ * Renderer della finestra PiP. La classe CameraPiP gestisce l'intero ciclo di
+ * vita della webcam nel <video>: avvio/stop dello stream con i constraint dei
+ * settings, retry sugli errori, overlay informativo e le trasformazioni CSS
+ * di zoom/offset/flip (applyZoom, applyOffset, applyFlip) comandate dal main
+ * via IPC. Include il flip automatico in base alla posizione della finestra
+ * sullo schermo e istanzia il FaceTracker (face-tracker.js) passandogli i
+ * callback per pilotare le stesse trasformazioni.
+ */
+
 class CameraPiP {
   constructor() {
     this.videoElement = null;
@@ -14,7 +23,7 @@ class CameraPiP {
     this.currentOffsetY = 0;
     this.currentFlip = 'normal';
     this.lastKeyTime = 0;
-    this.lastKeyTime = 0;
+    this.faceTracker = null;
 
     // Auto flip state management
     this.autoFlipActive = false; // Tracks current flip state in auto mode
@@ -52,6 +61,25 @@ class CameraPiP {
       this.applyOffset(this.currentOffsetX, this.currentOffsetY);
       this.applyFlip(this.currentFlip);
 
+      this.faceTracker = new FaceTracker({
+        videoElement: this.videoElement,
+        applyZoom: (zoomLevel) => this.applyZoom(zoomLevel),
+        applyOffset: (offsetX, offsetY) => this.applyOffset(offsetX, offsetY),
+        getEffectiveFlip: () => this.getEffectiveFlip(),
+        getView: () => ({
+          zoom: this.currentZoom,
+          offsetX: this.currentOffsetX,
+          offsetY: this.currentOffsetY,
+        }),
+      });
+      this.faceTracker.setTuning({
+        maxZoom: settings.faceTrackingMaxZoom,
+        speed: settings.faceTrackingSpeed,
+        delaySeconds: settings.faceTrackingDelay,
+        tolerance: settings.faceTrackingTolerance,
+      });
+      this.faceTracker.setEnabled(settings.faceTracking);
+
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
       console.error('Initialization error:', error);
@@ -88,6 +116,14 @@ class CameraPiP {
 
     window.electronAPI.receive('flip-changed', (flip) => {
       this.applyFlip(flip);
+    });
+
+    window.electronAPI.receive('face-tracking-changed', (isEnabled) => {
+      this.faceTracker?.setEnabled(isEnabled);
+    });
+
+    window.electronAPI.receive('face-tracking-tuning-changed', (tuning) => {
+      this.faceTracker?.setTuning(tuning);
     });
 
     // Keyboard shortcuts handler
