@@ -6,7 +6,8 @@
  * comandi manuali di zoom/offset passano da changeZoom/changeOffset e
  * spengono il face tracking; il renderer persiste i valori del tracking con
  * i canali set-level/set-position, che salvano senza rimandare l'evento.
- * Serve anche i file di vendor/mediapipe/ al renderer (read-vendor-file).
+ * Serve anche al renderer, via read-vendor-file, gli asset di
+ * vendor/mediapipe/ e il worker del face tracking (whitelist rigida).
  */
 
 const {
@@ -98,12 +99,16 @@ const TRACKING_TOLERANCE_OPTIONS = [
 ];
 
 // Unici file serviti dal handler read-vendor-file: whitelist rigida
-const VENDOR_MEDIAPIPE_FILES = [
-  "vision_bundle.mjs",
-  "vision_wasm_internal.js",
-  "vision_wasm_internal.wasm",
-  "blaze_face_short_range.tflite",
-];
+// (nome richiesto → path relativo alla root dell'app). Il worker del face
+// tracking è codice nostro, non vendor, ma passa dallo stesso canale: il
+// renderer non può leggerlo in altro modo (fetch/XHR verso file:// bloccati).
+const RENDERER_READABLE_FILES = {
+  "vision_bundle.mjs": ["vendor", "mediapipe", "vision_bundle.mjs"],
+  "vision_wasm_internal.js": ["vendor", "mediapipe", "vision_wasm_internal.js"],
+  "vision_wasm_internal.wasm": ["vendor", "mediapipe", "vision_wasm_internal.wasm"],
+  "blaze_face_short_range.tflite": ["vendor", "mediapipe", "blaze_face_short_range.tflite"],
+  "face-detection-worker.js": ["face-detection-worker.js"],
+};
 
 // Global state
 let store;
@@ -579,13 +584,14 @@ function setupIPC() {
     saveSettings({ autoFlipActive });
   });
 
-  // I file di vendor/mediapipe (bundle, wasm, modello) si servono via IPC
-  // perché fetch/XHR verso file:// è bloccato da Chromium — vedi plan 001
+  // I file whitelistati (asset MediaPipe + worker del tracking) si servono via
+  // IPC perché fetch/XHR verso file:// è bloccato da Chromium — vedi plan 001
   ipcMain.handle("read-vendor-file", (event, fileName) => {
-    if (!VENDOR_MEDIAPIPE_FILES.includes(fileName)) {
-      throw new Error(`Vendor file non consentito: ${fileName}`);
+    const relativePath = RENDERER_READABLE_FILES[fileName];
+    if (!relativePath) {
+      throw new Error(`File non consentito: ${fileName}`);
     }
-    return fs.readFileSync(path.join(__dirname, "vendor", "mediapipe", fileName));
+    return fs.readFileSync(path.join(__dirname, ...relativePath));
   });
 }
 

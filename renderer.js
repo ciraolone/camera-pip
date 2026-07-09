@@ -71,6 +71,7 @@ class CameraPiP {
           offsetX: this.currentOffsetX,
           offsetY: this.currentOffsetY,
         }),
+        restartCamera: () => this.restartCamera(),
       });
       this.faceTracker.setTuning({
         maxZoom: settings.faceTrackingMaxZoom,

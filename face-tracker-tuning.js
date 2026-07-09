@@ -9,6 +9,11 @@
 
 const TRACKING_TUNING = {
   detectionIntervalMs: 150, // ~7 Hz di detection: bastano per un inseguimento delicato
+  detectionFrameWidth: 256, // larghezza del frame ridotto passato al detector (px)
+  detectionFailuresBeforeRestart: 5, // errori consecutivi prima di ricreare il detector
+  detectorRecycleIntervalMs: 10 * 60 * 1000, // riciclo preventivo del detector: il runtime MediaPipe accumula risorse a ogni frame anche senza errori (leak noto)
+  videoStallTimeoutMs: 4000, // nessun fotogramma consegnato per tanto così (a finestra visibile) → riavvio dello stream della camera
+  videoStallRestartCooldownMs: 15000, // distanza minima fra due riavvii della camera per stallo
   targetEyeFraction: 1 / 3, // quota degli occhi dall'alto della finestra
   deadZoneStopFraction: 0.02, // errore (frazione del lato corto della finestra) sotto cui l'inseguimento si ferma
   faceAbsenceTimeoutMs: 3000, // attesa senza volto prima del rientro alla vista neutra

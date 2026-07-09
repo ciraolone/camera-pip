@@ -1,21 +1,25 @@
 /**
- * Face tracking della finestra PiP. FaceTracker rileva il volto con MediaPipe
- * (via mediapipe-loader.js) e pilota i meccanismi esistenti di zoom/offset di
+ * Face tracking della finestra PiP. FaceTracker coordina il rilevamento del
+ * volto — delegato a face-detection-client.js, che fa girare MediaPipe in un
+ * worker separato — e pilota i meccanismi esistenti di zoom/offset di
  * CameraPiP per tenere gli occhi centrati in orizzontale a un terzo dall'alto.
- * Qui vivono il ciclo di vita (enable/disable, sospensioni) e i due loop:
- * detection a cadenza ridotta con filtro anti-tremolio (face-selection.js) e
- * movimento a requestAnimationFrame. Le decisioni sono delegate a
- * face-chase-policy.js, l'integrazione del moto alla molla di face-motion.js,
- * la matematica della vista a face-tracker-view.js e la taratura a
- * face-tracker-tuning.js. Persiste zoom/offset via IPC con throttle.
+ * Qui vivono il ciclo di vita (enable/disable, sospensioni), i due loop
+ * (invio frame a cadenza ridotta e movimento a requestAnimationFrame), il
+ * filtro anti-tremolio (face-selection.js) e il watchdog sullo stallo del
+ * video, che riavvia la camera via callback se i fotogrammi smettono di
+ * arrivare. Le decisioni sono delegate a face-chase-policy.js, l'integrazione
+ * del moto alla molla di face-motion.js, la matematica della vista a
+ * face-tracker-view.js e la taratura a face-tracker-tuning.js. Persiste
+ * zoom/offset via IPC con throttle.
  */
 
 class FaceTracker {
-  constructor({ videoElement, applyZoom, applyOffset, getEffectiveFlip, getView }) {
+  constructor({ videoElement, applyZoom, applyOffset, getEffectiveFlip, getView, restartCamera }) {
     this.videoElement = videoElement;
     this.applyZoom = applyZoom;
     this.applyOffset = applyOffset;
     this.getView = getView;
+    this.restartCamera = restartCamera;
     this.motion = new TrackingMotion();
     this.policy = new ChasePolicy({
       getView,
@@ -23,13 +27,19 @@ class FaceTracker {
       getTuning: () => this.tuning,
       persistView: () => this.persistView(),
     });
-    this.detector = null;
+    this.detection = new FaceDetectionClient({
+      onDetections: (detections) => this.handleDetections(detections),
+      onFatalError: () => this.setEnabled(false),
+    });
     // Taratura scelta dall'utente: arriva dai settings via setTuning (main → IPC)
     this.tuning = { maxZoom: 0, speed: 3, delaySeconds: 0, tolerance: 3 };
     this.isEnabled = false;
     this.face = null; // centro-occhi filtrato del volto agganciato, coordinate normalizzate del frame raw
     this.lastFaceSeenAt = 0;
     this.lastVideoTime = -1;
+    this.lastFrameDeliveredAt = 0;
+    this.videoFrameCallbackId = null;
+    this.lastCameraRestartAt = 0;
     this.detectionTimer = null;
     this.animationFrameId = null;
     this.lastFrameAt = 0;
@@ -41,30 +51,23 @@ class FaceTracker {
     this.policy.clampZoomTarget(tuning.maxZoom);
   }
 
-  async setEnabled(isEnabled) {
+  setEnabled(isEnabled) {
     this.isEnabled = isEnabled;
     if (!isEnabled) {
+      this.detection.stop();
       this.stopLoops();
       return;
     }
-    if (!this.detector) {
-      try {
-        this.detector = await loadFaceDetector();
-        console.log('Face tracking: MediaPipe pronto');
-      } catch (error) {
-        console.error('Face tracking: inizializzazione MediaPipe fallita', error);
-        this.isEnabled = false;
-        return;
-      }
-    }
-    // Il toggle può essere stato rispento durante l'attesa dell'init
-    if (this.isEnabled) this.startLoops();
+    this.detection.start();
+    this.startLoops();
   }
 
   startLoops() {
     if (this.detectionTimer) return;
     // Il periodo di grazia senza volto parte da ora, non dall'epoca 0
     this.lastFaceSeenAt = this.lastFrameAt = performance.now();
+    this.lastFrameDeliveredAt = performance.now();
+    this.watchVideoFrames();
     this.detectionTimer = setInterval(() => this.detectTick(), TRACKING_TUNING.detectionIntervalMs);
     this.animationFrameId = requestAnimationFrame((now) => this.movementTick(now));
   }
@@ -72,6 +75,10 @@ class FaceTracker {
   stopLoops() {
     clearInterval(this.detectionTimer);
     cancelAnimationFrame(this.animationFrameId);
+    if (this.videoFrameCallbackId !== null) {
+      this.videoElement.cancelVideoFrameCallback(this.videoFrameCallbackId);
+      this.videoFrameCallbackId = null;
+    }
     this.detectionTimer = null;
     this.animationFrameId = null;
     this.face = null;
@@ -79,13 +86,48 @@ class FaceTracker {
     this.motion.reset();
   }
 
+  // Conta i fotogrammi davvero consegnati dalla camera. currentTime non serve
+  // allo scopo: su uno stream live avanza con l'orologio anche se i fotogrammi
+  // non arrivano più (verificato con la sonda del 2026-07-09).
+  watchVideoFrames() {
+    this.videoFrameCallbackId = this.videoElement.requestVideoFrameCallback(() => {
+      this.lastFrameDeliveredAt = performance.now();
+      this.watchVideoFrames();
+    });
+  }
+
   detectTick() {
     const video = this.videoElement;
-    if (document.hidden || video.readyState < 2 || !video.videoWidth) return;
+    const now = performance.now();
+    if (document.hidden || video.readyState < 2 || !video.videoWidth) {
+      // Niente conteggio di stallo quando il video non deve consegnare
+      // (finestra nascosta, stream in riavvio): il timer riparte da qui
+      this.lastFrameDeliveredAt = now;
+      return;
+    }
+    if (now - this.lastFrameDeliveredAt >= TRACKING_TUNING.videoStallTimeoutMs) {
+      this.maybeRestartStalledCamera(now);
+      return;
+    }
     if (video.currentTime === this.lastVideoTime) return;
     this.lastVideoTime = video.currentTime;
-    const result = this.detector.detectForVideo(video, performance.now());
-    const selected = selectTrackedFace(result.detections, this.face,
+    this.detection.requestDetection(video);
+  }
+
+  // Watchdog sullo stallo: se la camera smette di consegnare fotogrammi
+  // (driver incastrato, camera contesa da un altro programma) il video resta
+  // congelato in silenzio, senza alcun errore da nessuna parte. Qui si riavvia
+  // lo stream, con un cooldown per non martellare un dispositivo malmesso.
+  maybeRestartStalledCamera(now) {
+    if (now - this.lastCameraRestartAt < TRACKING_TUNING.videoStallRestartCooldownMs) return;
+    console.error('Face tracking: la camera non consegna più fotogrammi, riavvio lo stream');
+    this.lastCameraRestartAt = now;
+    this.lastFrameDeliveredAt = now;
+    this.restartCamera();
+  }
+
+  handleDetections(detections) {
+    const selected = selectTrackedFace(detections, this.face,
       TRACKING_TUNING.faceStickinessRatio, TRACKING_TUNING.sameFaceMaxDistance);
     if (!selected) {
       this.face = null;

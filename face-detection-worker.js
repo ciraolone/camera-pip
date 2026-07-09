@@ -1,0 +1,101 @@
+/**
+ * Worker di rilevamento volto. Gira in un thread separato dal resto dell'app:
+ * riceve una volta i byte di MediaPipe (bundle, runtime WASM, modello) con il
+ * messaggio init, costruisce il FaceDetector e poi risponde ai messaggi detect
+ * (un ImageBitmap già ridotto) con le detection in forma minimale e
+ * serializzabile. Il messaggio restart ricrea il detector da zero riusando i
+ * byte conservati (watchdog ed errori decisi da face-detection-client.js, che
+ * è l'unico interlocutore). Tenere MediaPipe qui dentro toglie il costo del
+ * rilevamento dal thread che disegna video e movimento, e isola il suo
+ * contesto grafico dal rendering del video dell'app. Worker classico, non
+ * module: il runtime di MediaPipe si carica con importScripts, che nei module
+ * worker non esiste.
+ */
+
+let assets = null;
+let detector = null;
+let sampleCanvas = null;
+let sampleContext = null;
+
+const asBlobUrl = (bytes, mimeType) => URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+
+async function buildDetector() {
+  if (!assets.visionBundle) {
+    assets.visionBundle = await import(asBlobUrl(assets.bundleBytes, 'text/javascript'));
+    assets.wasmLoaderPath = asBlobUrl(assets.wasmLoaderBytes, 'text/javascript');
+    assets.wasmBinaryPath = asBlobUrl(assets.wasmBinaryBytes, 'application/wasm');
+  }
+  return assets.visionBundle.FaceDetector.createFromOptions(
+    {
+      wasmLoaderPath: assets.wasmLoaderPath,
+      wasmBinaryPath: assets.wasmBinaryPath,
+    },
+    {
+      baseOptions: {
+        // Copia difensiva: se la creazione consumasse il buffer, i restart successivi ne hanno bisogno intatto
+        modelAssetBuffer: assets.modelBytes.slice(),
+        delegate: 'CPU',
+      },
+      runningMode: 'VIDEO',
+    }
+  );
+}
+
+function detectFrame(frame, timestampMs) {
+  if (!sampleContext) {
+    sampleCanvas = new OffscreenCanvas(frame.width, frame.height);
+    sampleContext = sampleCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (sampleCanvas.width !== frame.width || sampleCanvas.height !== frame.height) {
+    sampleCanvas.width = frame.width;
+    sampleCanvas.height = frame.height;
+  }
+  sampleContext.drawImage(frame, 0, 0);
+  frame.close();
+  const pixels = sampleContext.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height);
+  const result = detector.detectForVideo(pixels, timestampMs);
+  return result.detections.map((detection) => ({
+    boundingBox: {
+      originX: detection.boundingBox.originX,
+      originY: detection.boundingBox.originY,
+      width: detection.boundingBox.width,
+      height: detection.boundingBox.height,
+    },
+    keypoints: detection.keypoints.map((keypoint) => ({ x: keypoint.x, y: keypoint.y })),
+  }));
+}
+
+async function rebuildDetector(message) {
+  if (message.type === 'init') assets = message.assets;
+  try {
+    if (detector) detector.close();
+  } catch (closeError) {
+    // il vecchio detector può essere già inutilizzabile: l'importante è ricrearlo
+  }
+  detector = null;
+  try {
+    detector = await buildDetector();
+    self.postMessage({ type: 'ready' });
+  } catch (error) {
+    self.postMessage({ type: 'init-error', message: String(error) });
+  }
+}
+
+self.onmessage = (event) => {
+  const message = event.data;
+  if (message.type === 'init' || message.type === 'restart') {
+    rebuildDetector(message);
+    return;
+  }
+  if (message.type !== 'detect') return;
+  if (!detector) {
+    message.frame.close();
+    self.postMessage({ type: 'error', message: 'detector assente' });
+    return;
+  }
+  try {
+    self.postMessage({ type: 'result', detections: detectFrame(message.frame, message.timestampMs) });
+  } catch (error) {
+    self.postMessage({ type: 'error', message: String(error) });
+  }
+};

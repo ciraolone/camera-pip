@@ -72,6 +72,9 @@ Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può a
 - Più volti nel campo visivo: si insegue il più grande (il più vicino alla webcam), con un margine di stabilità per non saltare tra volti di dimensioni simili.
 - Cambio webcam con tracking attivo: il tracking continua a funzionare sul nuovo dispositivo senza dover essere riattivato.
 - Volto parzialmente fuori dal campo visivo della webcam: il tracking fa quel che può entro il vincolo dei bordi, senza comportamenti erratici.
+- Sessioni lunghe: se il motore di rilevamento va in errore, il tracking si auto-ripristina (o al peggio si spegne da solo); il video dell'app non deve mai congelarsi per colpa del tracking.
+- Il tracking non degrada la fluidità: né il video né il movimento di inseguimento devono diventare scattosi con il tracking acceso, anche su macchine modeste.
+- Camera che smette di consegnare fotogrammi con tracking attivo (driver incastrato, camera contesa da un altro programma): l'app riavvia da sola lo stream entro pochi secondi invece di restare congelata, senza martellare il dispositivo (al più un tentativo ogni ~15 secondi).
 
 ## Non-goals
 
