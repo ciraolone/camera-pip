@@ -48,6 +48,37 @@
       }
     }
 
+    /* Riquadro diagnostico del face tracking: sta sotto il pannello info
+       (z-index più basso) e non deve mai intercettare il mouse, altrimenti
+       ruberebbe il tasto destro al menu contestuale. */
+    #framing-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      display: none;
+      pointer-events: none;
+    }
+
+    #framing-overlay.visible {
+      display: block;
+    }
+
+    #framing-zone {
+      position: absolute;
+      border: 1px dashed rgba(0, 230, 190, 0.9);
+      background: rgba(0, 230, 190, 0.06);
+    }
+
+    #framing-target {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      border: 1px solid rgba(255, 90, 90, 0.95);
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    }
+
     #webcam-info {
       position: fixed;
       bottom: 10px;
@@ -82,16 +113,22 @@
     <video id="webcam" autoplay muted></video>
     <!-- <div id="webcam2" autoplay muted>Ciao!</div> -->
   </div>
+  <div id="framing-overlay">
+    <div id="framing-zone"></div>
+    <div id="framing-target"></div>
+  </div>
   <div id="webcam-info">
     <div id="resolution-info">Risoluzione: --</div>
     <div id="fps-info">FPS: --</div>
     <div id="zoom-info">Zoom: 1.0x</div>
     <div id="offset-info">Offset: 0, 0</div>
+    <div id="speed-info">Speed: 0 px/s (max 0)</div>
     <div id="window-size-info">Finestra: --</div>
     <div id="window-distance-info">Distance: --</div>
   </div>
   <script src="face-detection-client.js"></script>
   <script src="face-tracker-tuning.js"></script>
+  <script src="face-framing-overlay.js"></script>
   <script src="face-selection.js"></script>
   <script src="face-tracker-view.js"></script>
   <script src="face-motion.js"></script>

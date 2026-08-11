@@ -26,6 +26,15 @@ const windowStateKeeper = require("electron-window-state");
 // Set AppUserModelId early so Windows correctly associates window and taskbar button
 app.setAppUserModelId("com.camerapip.app");
 
+// Su Windows Chromium decide da solo quando una finestra è completamente
+// coperta e smette di comporla per risparmiare. Il calcolo sbaglia sulle
+// finestre frameless sempre-in-primo-piano come questa: l'immagine si
+// congela sull'ultimo fotogramma mentre la webcam continua a consegnarli, e
+// si sblocca solo spostando o ridimensionando la finestra (è quello che
+// forza il ricalcolo). Va disabilitato prima di whenReady, altrimenti la
+// riga non ha effetto.
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+
 // Constants
 const APP_CONFIG = {
   title: "Ciraolone",
@@ -65,7 +74,9 @@ const FLIP_OPTIONS = [
 // 0 = Off: il tracking sposta solo l'inquadratura, senza mai toccare lo zoom
 const TRACKING_ZOOM_OPTIONS = [
   { label: "Off", value: 0 },
+  { label: "1.25x", value: 1.25 },
   { label: "1.5x", value: 1.5 },
+  { label: "1.75x", value: 1.75 },
   { label: "2x", value: 2 },
   { label: "3x", value: 3 },
 ];
@@ -78,6 +89,13 @@ const TRACKING_SPEED_OPTIONS = [
   { label: "3", value: 3 },
   { label: "4", value: 4 },
   { label: "5 (fastest)", value: 5 },
+];
+
+// Quanto sono accentuate la partenza e la frenata del movimento
+const TRACKING_EASING_OPTIONS = [
+  { label: "1 (none)", value: 1 },
+  { label: "2 (medium)", value: 2 },
+  { label: "3 (strong)", value: 3 },
 ];
 
 // Attesa prima che l'inseguimento parta dopo uno spostamento, in secondi
@@ -96,6 +114,19 @@ const TRACKING_TOLERANCE_OPTIONS = [
   { label: "3", value: 3 },
   { label: "4", value: 4 },
   { label: "5 (largest)", value: 5 },
+];
+
+// Quanto è larga la zona in cui il volto va bene così com'è. I livelli sono
+// chiavi della mappa TRACKING_FRAMING_ZONES in face-tracker-tuning.js, che li
+// traduce nei bordi della zona; le etichette ricordano i tre punti di
+// riferimento attorno a cui la scala è stata costruita.
+const TRACKING_FRAMING_OPTIONS = [
+  { label: "1 (strict)", value: 1 },
+  { label: "2", value: 2 },
+  { label: "3 (normal)", value: 3 },
+  { label: "4", value: 4 },
+  { label: "5 (relaxed)", value: 5 },
+  { label: "6 (loosest)", value: 6 },
 ];
 
 // Unici file serviti dal handler read-vendor-file: whitelist rigida
@@ -153,6 +184,11 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       webSecurity: true,
+      // Senza questo Chromium strozza timer e requestAnimationFrame quando
+      // considera la finestra in secondo piano: il face tracking rallenta o si
+      // ferma proprio mentre l'utente lavora in un'altra finestra, che è il
+      // caso d'uso normale di questa app.
+      backgroundThrottling: false,
     },
   });
 
@@ -165,6 +201,22 @@ function createWindow() {
     const settings = getSettings();
     const contextMenu = buildContextMenu(settings);
     contextMenu.popup({ window: mainWindow, x: params.x, y: params.y });
+  });
+
+  // Rete di sicurezza sui crash del renderer (tipicamente esaurimento memoria
+  // con face tracking attivo in sessioni lunghe): il tracking va spento PRIMA
+  // di ricaricare, perché con il tracking persistito attivo l'app rientrava in
+  // crash pochi secondi dopo ogni riapertura finché l'utente non lo spegneva a
+  // mano dal menu. clean-exit e killed sono uscite normali, non crash.
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    if (details.reason === "clean-exit" || details.reason === "killed") return;
+    console.error(
+      `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`
+    );
+    if (getSettings().faceTracking) {
+      saveSettings({ faceTracking: false });
+    }
+    mainWindow?.webContents.reload();
   });
 
   mainWindow.on("closed", () => {
@@ -200,8 +252,7 @@ function createWindow() {
           event.preventDefault();
         } else if (input.key === "0") {
           lastKeyTime = currentTime;
-          changeZoom("reset");
-          changeOffset("reset");
+          resetView();
           event.preventDefault();
         } else if (input.key === "ArrowUp") {
           lastKeyTime = currentTime;
@@ -281,7 +332,17 @@ function getSettings() {
     faceTrackingSpeed: store ? store.get("faceTrackingSpeed", 3) : 3,
     faceTrackingDelay: store ? store.get("faceTrackingDelay", 0) : 0,
     faceTrackingTolerance: store ? store.get("faceTrackingTolerance", 3) : 3,
+    faceTrackingFraming: readTrackingFraming(),
+    faceTrackingEasing: store ? store.get("faceTrackingEasing", 2) : 2,
   };
+}
+
+// Un valore salvato da una versione precedente non deve lasciare il submenu
+// senza spunta né la policy senza zona bersaglio: si ricade sul default.
+function readTrackingFraming() {
+  const saved = store?.get("faceTrackingFraming");
+  const isKnown = TRACKING_FRAMING_OPTIONS.some((option) => option.value === saved);
+  return isKnown ? saved : 3;
 }
 
 function saveSettings(settings) {
@@ -304,18 +365,27 @@ function buildRadioSubmenu(options, currentValue, onSelect) {
   }));
 }
 
-function buildTrackingSubmenus(settings) {
+// Tutto il tracking sta sotto un'unica voce, interruttore compreso: le sue
+// manopole sono sei e nel menu di primo livello soffocavano le altre voci.
+// Dentro il sottomenu il prefisso "Tracking" è ridondante e viene tolto.
+function buildFaceTrackingSubmenu(settings) {
   const forKey = (key) => (value) => changeTrackingSetting(key, value);
   return [
-    { label: "Tracking Zoom", submenu: buildRadioSubmenu(TRACKING_ZOOM_OPTIONS, settings.faceTrackingMaxZoom, forKey("faceTrackingMaxZoom")) },
-    { label: "Tracking Speed", submenu: buildRadioSubmenu(TRACKING_SPEED_OPTIONS, settings.faceTrackingSpeed, forKey("faceTrackingSpeed")) },
-    { label: "Tracking Delay", submenu: buildRadioSubmenu(TRACKING_DELAY_OPTIONS, settings.faceTrackingDelay, forKey("faceTrackingDelay")) },
-    { label: "Tracking Tolerance", submenu: buildRadioSubmenu(TRACKING_TOLERANCE_OPTIONS, settings.faceTrackingTolerance, forKey("faceTrackingTolerance")) },
+    { label: "Enabled", type: "checkbox", checked: settings.faceTracking, click: () => toggleFaceTracking() },
+    { type: "separator" },
+    { label: "Zoom", submenu: buildRadioSubmenu(TRACKING_ZOOM_OPTIONS, settings.faceTrackingMaxZoom, forKey("faceTrackingMaxZoom")) },
+    { label: "Speed", submenu: buildRadioSubmenu(TRACKING_SPEED_OPTIONS, settings.faceTrackingSpeed, forKey("faceTrackingSpeed")) },
+    { label: "Easing", submenu: buildRadioSubmenu(TRACKING_EASING_OPTIONS, settings.faceTrackingEasing, forKey("faceTrackingEasing")) },
+    { label: "Delay", submenu: buildRadioSubmenu(TRACKING_DELAY_OPTIONS, settings.faceTrackingDelay, forKey("faceTrackingDelay")) },
+    { label: "Tolerance", submenu: buildRadioSubmenu(TRACKING_TOLERANCE_OPTIONS, settings.faceTrackingTolerance, forKey("faceTrackingTolerance")) },
+    { label: "Framing", submenu: buildRadioSubmenu(TRACKING_FRAMING_OPTIONS, settings.faceTrackingFraming, forKey("faceTrackingFraming")) },
   ];
 }
 
-function buildContextMenu(settings) {
-  const deviceSubmenu =
+// Sorgente e formato dell'immagine stanno insieme: sono le manopole che
+// descrivono "che cosa entra nella finestra".
+function buildCameraSubmenu(settings) {
+  const deviceItems =
     videoDevices.length > 0
       ? videoDevices.map((device) => ({
           label: device.label || `Camera ${device.deviceId.substring(0, 8)}`,
@@ -325,53 +395,34 @@ function buildContextMenu(settings) {
         }))
       : [{ label: "No cameras found", enabled: false }];
 
-  const resolutionSubmenu = buildRadioSubmenu(RESOLUTIONS, settings.resolution, changeResolution);
-  const fpsSubmenu = buildRadioSubmenu(FPS_OPTIONS, settings.fps, changeFps);
-  const flipSubmenu = buildRadioSubmenu(FLIP_OPTIONS, settings.flip, changeFlip);
+  return [
+    ...deviceItems,
+    { type: "separator" },
+    { label: "Resolution", submenu: buildRadioSubmenu(RESOLUTIONS, settings.resolution, changeResolution) },
+    { label: "Frame Rate", submenu: buildRadioSubmenu(FPS_OPTIONS, settings.fps, changeFps) },
+    { label: "Flip", submenu: buildRadioSubmenu(FLIP_OPTIONS, settings.flip, changeFlip) },
+  ];
+}
 
+// Interruttori che riguardano la finestra in sé, non l'immagine che mostra.
+function buildWindowSubmenu(settings) {
+  return [
+    { label: "Always on Top", type: "checkbox", checked: settings.alwaysOnTop, click: () => toggleAlwaysOnTop() },
+    { label: "Hide from Taskbar", type: "checkbox", checked: settings.skipTaskbar, click: () => toggleSkipTaskbar() },
+    { label: "Info webcam", type: "checkbox", checked: settings.showWebcamInfo, click: () => toggleWebcamInfo() },
+  ];
+}
+
+// Le voci di primo livello sono poche di proposito: quando il menu supera in
+// altezza lo spazio libero sopra e sotto al cursore, Chromium non lo ribalta
+// ma lo rende scrollabile. Raggruppare tiene il menu corto e sempre intero.
+function buildContextMenu(settings) {
   const template = [
-    { label: "Camera", submenu: deviceSubmenu },
+    { label: "Camera", submenu: buildCameraSubmenu(settings) },
+    { label: "Face Tracking", submenu: buildFaceTrackingSubmenu(settings) },
+    { label: "Window", submenu: buildWindowSubmenu(settings) },
     { type: "separator" },
-    { label: "Resolution", submenu: resolutionSubmenu },
-    { label: "Frame Rate", submenu: fpsSubmenu },
-    { label: "Flip", submenu: flipSubmenu },
-    { type: "separator" },
-    {
-      label: "Face Tracking",
-      type: "checkbox",
-      checked: settings.faceTracking,
-      click: () => toggleFaceTracking(),
-    },
-    ...buildTrackingSubmenus(settings),
-    { type: "separator" },
-    {
-      label: "Always on Top",
-      type: "checkbox",
-      checked: settings.alwaysOnTop,
-      click: () => toggleAlwaysOnTop(),
-    },
-    {
-      label: "Hide from Taskbar",
-      type: "checkbox",
-      checked: settings.skipTaskbar,
-      click: () => toggleSkipTaskbar(),
-    },
-    {
-      label: "Info webcam",
-      type: "checkbox",
-      checked: settings.showWebcamInfo,
-      click: () => toggleWebcamInfo(),
-    },
-    { type: "separator" },
-    {
-      label: "Zoom Reset",
-      click: () => changeZoom("reset"),
-    },
-    {
-      label: "Offset Reset",
-      click: () => changeOffset("reset"),
-    },
-    { type: "separator" },
+    { label: "Reset View", click: () => resetView() },
     { role: "reload" },
     { role: "toggleDevTools" },
     { type: "separator" },
@@ -379,6 +430,13 @@ function buildContextMenu(settings) {
   ];
 
   return Menu.buildFromTemplate(template);
+}
+
+// Zoom e spostamento manuali si azzerano sempre insieme: da soli lasciano
+// un'inquadratura a metà che l'utente deve comunque finire di sistemare.
+function resetView() {
+  changeZoom("reset");
+  changeOffset("reset");
 }
 
 // Device selection
@@ -426,6 +484,8 @@ function getTrackingTuning() {
     speed: settings.faceTrackingSpeed,
     delaySeconds: settings.faceTrackingDelay,
     tolerance: settings.faceTrackingTolerance,
+    framing: settings.faceTrackingFraming,
+    easing: settings.faceTrackingEasing,
   };
 }
 

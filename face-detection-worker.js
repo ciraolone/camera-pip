@@ -3,42 +3,42 @@
  * riceve una volta i byte di MediaPipe (bundle, runtime WASM, modello) con il
  * messaggio init, costruisce il FaceDetector e poi risponde ai messaggi detect
  * (un ImageBitmap già ridotto) con le detection in forma minimale e
- * serializzabile. Il messaggio restart ricrea il detector da zero riusando i
- * byte conservati (watchdog ed errori decisi da face-detection-client.js, che
- * è l'unico interlocutore). Tenere MediaPipe qui dentro toglie il costo del
+ * serializzabile. Vive quanto un detector: il riciclo (preventivo o per
+ * errori) è una terminazione decisa da face-detection-client.js — l'unico
+ * interlocutore — che poi crea un worker nuovo; è la terminazione a liberare
+ * la memoria del runtime. Tenere MediaPipe qui dentro toglie il costo del
  * rilevamento dal thread che disegna video e movimento, e isola il suo
  * contesto grafico dal rendering del video dell'app. Worker classico, non
  * module: il runtime di MediaPipe si carica con importScripts, che nei module
  * worker non esiste.
  */
 
-let assets = null;
 let detector = null;
 let sampleCanvas = null;
 let sampleContext = null;
 
 const asBlobUrl = (bytes, mimeType) => URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 
-async function buildDetector() {
-  if (!assets.visionBundle) {
-    assets.visionBundle = await import(asBlobUrl(assets.bundleBytes, 'text/javascript'));
-    assets.wasmLoaderPath = asBlobUrl(assets.wasmLoaderBytes, 'text/javascript');
-    assets.wasmBinaryPath = asBlobUrl(assets.wasmBinaryBytes, 'application/wasm');
-  }
-  return assets.visionBundle.FaceDetector.createFromOptions(
-    {
-      wasmLoaderPath: assets.wasmLoaderPath,
-      wasmBinaryPath: assets.wasmBinaryPath,
-    },
-    {
-      baseOptions: {
-        // Copia difensiva: se la creazione consumasse il buffer, i restart successivi ne hanno bisogno intatto
-        modelAssetBuffer: assets.modelBytes.slice(),
-        delegate: 'CPU',
+async function initDetector(assets) {
+  try {
+    const visionBundle = await import(asBlobUrl(assets.bundleBytes, 'text/javascript'));
+    detector = await visionBundle.FaceDetector.createFromOptions(
+      {
+        wasmLoaderPath: asBlobUrl(assets.wasmLoaderBytes, 'text/javascript'),
+        wasmBinaryPath: asBlobUrl(assets.wasmBinaryBytes, 'application/wasm'),
       },
-      runningMode: 'VIDEO',
-    }
-  );
+      {
+        baseOptions: {
+          modelAssetBuffer: assets.modelBytes,
+          delegate: 'CPU',
+        },
+        runningMode: 'VIDEO',
+      }
+    );
+    self.postMessage({ type: 'ready' });
+  } catch (error) {
+    self.postMessage({ type: 'init-error', message: String(error) });
+  }
 }
 
 function detectFrame(frame, timestampMs) {
@@ -65,26 +65,10 @@ function detectFrame(frame, timestampMs) {
   }));
 }
 
-async function rebuildDetector(message) {
-  if (message.type === 'init') assets = message.assets;
-  try {
-    if (detector) detector.close();
-  } catch (closeError) {
-    // il vecchio detector può essere già inutilizzabile: l'importante è ricrearlo
-  }
-  detector = null;
-  try {
-    detector = await buildDetector();
-    self.postMessage({ type: 'ready' });
-  } catch (error) {
-    self.postMessage({ type: 'init-error', message: String(error) });
-  }
-}
-
 self.onmessage = (event) => {
   const message = event.data;
-  if (message.type === 'init' || message.type === 'restart') {
-    rebuildDetector(message);
+  if (message.type === 'init') {
+    initDetector(message.assets);
     return;
   }
   if (message.type !== 'detect') return;

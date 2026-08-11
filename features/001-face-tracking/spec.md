@@ -15,6 +15,17 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 - Q: (prima sessione di taratura) Come si regola la delicatezza del movimento? → A: Tre setting a menu: velocità su 5 livelli (default 3; il livello 4 replica la prima consegna), ritardo di partenza da 0 a 2 secondi a passi di 0.5 (default 0), tolleranza su 5 livelli (default 3). Lo zoom inoltre va tenuto in ogni momento al minimo indispensabile entro il tetto configurato.
 - Q: (seconda sessione di taratura) Quali rifiniture per la qualità del movimento? → A: Partenza graduale oltre che arrivo graduale (accelera e decelera dolcemente), velocità adattiva (correzioni piccole lente, spostamenti ampi più decisi, fino al doppio), filtro anti-tremolio sul rilevamento. Parcheggiate nel backlog: scorciatoia da tastiera, toggle nella tray, indicatore di stato.
 
+### Sessione 2026-08-10
+
+- Q: Il tracking sembra alzare lo zoom anche quando non servirebbe. Da dove viene? → A: Dal bersaglio verticale, che era un punto solo ("occhi a un terzo dall'alto"). Spostare l'inquadratura in verticale è possibile solo grazie al margine creato dallo zoom, quindi ogni scostamento dal punto costava ingrandimento: con gli occhi a metà immagine servivano già 1.33x, sotto la metà anche più del tetto di 1.5x.
+- Q: Come si risolve? → A: Il bersaglio diventa una zona invece che un punto, e vale su entrambi gli assi: finché gli occhi stanno nella zona il tracking non muove niente e non spende ingrandimento. Una sola manopola a menu ("Tracking Framing") con tre livelli, perché una zona verticale da sola non basta: col bersaglio orizzontale fisso al centro esatto bastavano 8 punti percentuali di scarto laterale per chiedere 1.25x.
+- Q: Quanto larga la zona, e quale livello di serie? → A: Sei livelli su una scala unica, come già per velocità e tolleranza. Il livello 1 è il bersaglio puntuale della prima consegna (centro esatto, occhi a un terzo); salendo la zona si allarga su entrambi gli assi fino al livello 6. Di serie il 3, che accetta il volto nel 30% centrale in larghezza e nella metà alta in altezza. In larghezza la scala cresce più piano che in altezza, perché in orizzontale il bersaglio è il centro esatto e ogni punto percentuale di scarto laterale si paga più caro in ingrandimento.
+- Q: Il tetto di zoom ha abbastanza gradini? → A: Aggiunti 1.25x e 1.75x fra i valori proposti, per poter tenere l'ingrandimento più basso senza spegnerlo del tutto.
+- Q: Quando il tracking interviene, dove deve portare il volto? → A: Verso il punto bersaglio (centro in orizzontale, un terzo dall'alto in verticale), non solo appena dentro il bordo della zona: un intervento deve rimettere il volto in posizione buona, altrimenti ne riesce subito. L'ingrandimento però resta quello minimo che serve a farlo rientrare nella zona: comprarne di più per centrarlo perfettamente costerebbe molto e il rientro dello zoom lo disferebbe subito dopo.
+- Q: Come si capisce a occhio cosa sta facendo il tracking? → A: Con il pannello info della webcam attivo compaiono anche il riquadro della zona e il mirino del punto bersaglio, disegnati dagli stessi valori che usa la policy.
+- Q: Partenza e frenata si possono accentuare? → A: Sì, nuovo setting "Easing" su tre livelli (di serie il 2): il livello 1 è il movimento della prima consegna, salendo la partenza diventa più graduale. Il tetto è fissato dove il movimento comincerebbe a oltrepassare il bersaglio, cosa che lo spec vieta.
+- Q: Il menu comincia a essere lungo. → A: Tutte le voci del tracking, interruttore compreso, stanno sotto un'unica voce "Face Tracking"; dentro il sottomenu il prefisso "Tracking" sparisce dalle etichette.
+
 ## Scenari
 
 ### Attivazione e disattivazione
@@ -31,13 +42,18 @@ Il face tracking si accende e si spegne da una voce del menu del tasto destro, c
 Con il tracking attivo, quando la persona si sposta davanti alla webcam l'inquadratura la segue dolcemente, riportando il volto nella zona bersaglio: centrato in orizzontale, nella parte alta del riquadro. Test: TBD.
 
 - Il volto, a regime, appare centrato in orizzontale e nella parte alta dell'inquadratura.
+- Finché gli occhi stanno nella zona ammessa l'inquadratura non si muove affatto e l'ingrandimento resta a 1.0x.
+- Quando il volto esce dalla zona, l'inseguimento non si limita a rimetterlo appena dentro il bordo: lo porta verso il punto bersaglio, per quanto l'ingrandimento disponibile lo consente.
+- Con il pannello info della webcam attivo si vedono il riquadro della zona ammessa e il mirino del punto bersaglio, per capire a colpo d'occhio cosa sta facendo il tracking.
+- Dal menu si sceglie quanto la zona è esigente (Tracking Framing, sei livelli): al livello 1 il volto va tenuto centrato in orizzontale e con gli occhi a un terzo esatto dall'alto, salendo la zona si allarga progressivamente fino al livello 6. Di serie è il livello 3.
 - Il movimento dell'inquadratura è lento e morbido, mai a scatti.
 - Il movimento parte in modo graduale e arriva in modo graduale: accelera dolcemente, poi decelera avvicinandosi al bersaglio, senza mai oltrepassarlo.
 - Gli spostamenti ampi vengono recuperati con un passo più deciso (fino al doppio) rispetto alle piccole correzioni, a parità di morbidezza.
 - L'inquadratura non tremola mai, nemmeno alla tolleranza più bassa: il micro-rumore del rilevamento viene assorbito prima di muovere qualsiasi cosa.
 - Piccoli spostamenti del volto (parlare, gesticolare da fermi) non muovono l'inquadratura: reagisce solo a spostamenti veri e propri.
 - Il tracking funziona in modo coerente anche con il flip attivo (immagine specchiata): il volto viene inseguito nella direzione giusta.
-- La velocità dell'inseguimento si regola dal menu su cinque livelli (Tracking Speed): 1 il più lento, 5 il più rapido.
+- La velocità dell'inseguimento si regola dal menu su cinque livelli (Speed): 1 il più lento, 5 il più rapido.
+- Quanto partenza e frenata sono accentuate si regola su tre livelli (Easing): al livello 1 il movimento parte con la spinta piena, salendo prende velocità più gradualmente. In nessun livello il movimento oltrepassa il bersaglio.
 - Dal menu si può impostare un ritardo di partenza (Tracking Delay, da 0 a 2 secondi a passi di 0.5): il movimento comincia solo se il volto resta fuori tolleranza per almeno quel tempo; se rientra prima, l'inquadratura non si muove affatto.
 - La tolleranza si regola dal menu su cinque livelli (Tracking Tolerance): decide di quanto il volto può allontanarsi dal bersaglio prima che l'inseguimento parta.
 

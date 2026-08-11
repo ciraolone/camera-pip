@@ -5,10 +5,12 @@
  * worker da blob URL, gli invia i frame come ImageBitmap ridotti — uno alla
  * volta: se il rilevamento è più lento della cadenza, i frame in eccesso si
  * saltano invece di accodarsi — e riconsegna le detection al FaceTracker. Qui
- * vivono il watchdog (errori consecutivi → restart del detector nel worker),
- * il riciclo preventivo anti-leak a intervalli regolari e la resa definitiva
- * (onFatalError) se anche il ripristino fallisce. stop() termina il worker e
- * libera la memoria del runtime: alla riaccensione si riparte da zero.
+ * vivono il watchdog (errori consecutivi → riciclo del worker), il riciclo
+ * preventivo anti-leak a intervalli regolari e la resa definitiva
+ * (onFatalError) se un avvio fallisce. Il riciclo termina il worker e ne crea
+ * uno nuovo: ricreare il solo detector dentro il worker non liberava la
+ * memoria del runtime (~25 MB persi a ogni giro, misurato 2026-07-24) e
+ * portava l'app al crash per esaurimento memoria nelle sessioni lunghe.
  */
 
 class FaceDetectionClient {
@@ -16,10 +18,10 @@ class FaceDetectionClient {
     this.onDetections = onDetections;
     this.onFatalError = onFatalError;
     this.worker = null;
+    this.workerUrl = null;
     this.isReady = false;
     this.isStarting = false;
     this.isBusyDetecting = false;
-    this.isRestarting = false;
     this.detectionFailures = 0;
     this.detectorReadyAt = 0;
   }
@@ -36,8 +38,11 @@ class FaceDetectionClient {
         readFile('vision_wasm_internal.wasm'),
         readFile('blaze_face_short_range.tflite'),
       ]);
-      const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
-      this.worker = new Worker(workerUrl);
+      // stop() azzera isStarting anche ad avvio in corso: se è successo durante
+      // le letture qui sopra, l'avvio è annullato e il worker non va creato
+      if (!this.isStarting) return;
+      this.workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+      this.worker = new Worker(this.workerUrl);
       this.worker.onmessage = (event) => this.handleWorkerMessage(event.data);
       const assets = { bundleBytes, wasmLoaderBytes, wasmBinaryBytes, modelBytes };
       this.worker.postMessage({ type: 'init', assets }, [
@@ -46,29 +51,39 @@ class FaceDetectionClient {
         wasmBinaryBytes.buffer,
         modelBytes.buffer,
       ]);
+      this.isStarting = false;
     } catch (error) {
       console.error('Face tracking: inizializzazione MediaPipe fallita', error);
       this.stop();
       this.onFatalError();
     }
-    this.isStarting = false;
   }
 
   stop() {
     if (this.worker) this.worker.terminate();
+    if (this.workerUrl) URL.revokeObjectURL(this.workerUrl);
     this.worker = null;
+    this.workerUrl = null;
     this.isReady = false;
+    this.isStarting = false;
     this.isBusyDetecting = false;
-    this.isRestarting = false;
     this.detectionFailures = 0;
   }
 
+  // Terminare il worker è l'unico riciclo che libera davvero la memoria di
+  // MediaPipe: il runtime WASM e il suo contesto GL muoiono con il worker.
+  // Gli asset si rileggono da disco via IPC (~11 MB, invisibile a questa cadenza).
+  recycleWorker() {
+    this.stop();
+    this.start();
+  }
+
   requestDetection(video) {
-    if (!this.worker || !this.isReady || this.isBusyDetecting || this.isRestarting) return;
+    if (!this.worker || !this.isReady || this.isBusyDetecting) return;
     if (performance.now() - this.detectorReadyAt >= TRACKING_TUNING.detectorRecycleIntervalMs) {
       // Riciclo preventivo: il runtime MediaPipe accumula risorse a ogni frame anche senza errori (leak noto)
-      console.log('Face tracking: riciclo preventivo del detector');
-      this.restartDetector();
+      console.log('Face tracking: riciclo preventivo del worker');
+      this.recycleWorker();
       return;
     }
     this.isBusyDetecting = true;
@@ -94,12 +109,10 @@ class FaceDetectionClient {
 
   handleWorkerMessage(message) {
     if (message.type === 'ready') {
-      const isRestart = this.isRestarting;
       this.isReady = true;
       this.isBusyDetecting = false;
-      this.isRestarting = false;
       this.detectorReadyAt = performance.now();
-      console.log(isRestart ? 'Face tracking: MediaPipe ripristinato' : 'Face tracking: MediaPipe pronto');
+      console.log('Face tracking: MediaPipe pronto');
       return;
     }
     if (message.type === 'init-error') {
@@ -120,21 +133,13 @@ class FaceDetectionClient {
     }
   }
 
-  // Watchdog: dopo qualche errore consecutivo il detector viene ricreato nel
-  // worker; se anche il ripristino fallisce arriva init-error e il tracking si
+  // Watchdog: dopo qualche errore consecutivo il worker viene riciclato da
+  // zero; se anche il nuovo avvio fallisce arriva init-error e il tracking si
   // spegne da solo. Il video non deve mai richiedere un riavvio per colpa nostra.
   recordDetectionFailure(reason) {
     this.detectionFailures += 1;
-    if (this.detectionFailures < TRACKING_TUNING.detectionFailuresBeforeRestart || this.isRestarting) return;
-    console.error('Face tracking: detection in errore, reinizializzo MediaPipe', reason);
-    this.detectionFailures = 0;
-    this.restartDetector();
-  }
-
-  restartDetector() {
-    if (!this.worker || this.isRestarting) return;
-    this.isRestarting = true;
-    this.isReady = false;
-    this.worker.postMessage({ type: 'restart' });
+    if (this.detectionFailures < TRACKING_TUNING.detectionFailuresBeforeRestart) return;
+    console.error('Face tracking: detection in errore, riciclo il worker', reason);
+    this.recycleWorker();
   }
 }

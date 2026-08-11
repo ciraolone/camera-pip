@@ -40,6 +40,8 @@ class CameraPiP {
     try {
       this.videoElement = document.getElementById('webcam');
       this.webcamInfoElement = document.getElementById('webcam-info');
+      // Prima di updateWebcamInfoVisibility, che lo accende insieme al pannello
+      this.framingOverlay = new FramingOverlay(document.getElementById('framing-overlay'));
 
       if (!this.videoElement) {
         throw new Error('Video element not found');
@@ -78,7 +80,10 @@ class CameraPiP {
         speed: settings.faceTrackingSpeed,
         delaySeconds: settings.faceTrackingDelay,
         tolerance: settings.faceTrackingTolerance,
+        framing: settings.faceTrackingFraming,
+        easing: settings.faceTrackingEasing,
       });
+      this.framingOverlay.setFraming(settings.faceTrackingFraming);
       this.faceTracker.setEnabled(settings.faceTracking);
 
       await this.startCamera(settings.selectedDeviceId);
@@ -125,6 +130,7 @@ class CameraPiP {
 
     window.electronAPI.receive('face-tracking-tuning-changed', (tuning) => {
       this.faceTracker?.setTuning(tuning);
+      this.framingOverlay?.setFraming(tuning.framing);
     });
 
     // Keyboard shortcuts handler
@@ -188,13 +194,13 @@ class CameraPiP {
       this.applyOffset(this.currentOffsetX, this.currentOffsetY);
       this.applyFlip(this.currentFlip);
       // Update window info when resizing
-      this.forceUpdateWebcamInfo();
+      this.updateWebcamInfo();
       // Note: checkAutoFlip() is handled by the periodic interval, not needed here
     });
 
     // Window move/position change event
     window.addEventListener('beforeunload', () => {
-      this.forceUpdateWebcamInfo();
+      this.updateWebcamInfo();
     });
 
     // Window focus event - check position immediately when window gets focus
@@ -207,9 +213,7 @@ class CameraPiP {
         }
         this.checkAutoFlipImmediate();
       }
-      if (this.showWebcamInfo) {
-        this.forceUpdateWebcamInfo();
-      }
+      this.updateWebcamInfo();
     });
 
     // Page visibility change event - check position when page becomes visible
@@ -226,9 +230,7 @@ class CameraPiP {
 
     // Update window info periodically for position changes
     setInterval(() => {
-      if (this.showWebcamInfo) {
-        this.forceUpdateWebcamInfo();
-      }
+      this.updateWebcamInfo();
       // Check auto flip when window moves
       if (this.currentFlip === 'auto') {
         this.checkAutoFlip();
@@ -443,6 +445,7 @@ class CameraPiP {
 
   // Update webcam info visibility
   updateWebcamInfoVisibility() {
+    this.framingOverlay?.setVisible(this.showWebcamInfo);
     if (this.webcamInfoElement) {
       if (this.showWebcamInfo) {
         this.webcamInfoElement.classList.add('visible');
@@ -484,84 +487,41 @@ class CameraPiP {
     return { windowSize, windowPosition, distances };
   }
 
-  // Update webcam info display
+  // Unico punto che scrive il pannello info. Lo chiamano sia gli eventi rari
+  // (resize, focus, timer) sia applyZoom/applyOffset a ogni frame del tracking:
+  // è quest'ultima chiamata che rende la riga della velocità leggibile dal vivo.
   updateWebcamInfo() {
-    if (!this.showWebcamInfo || !this.webcamInfoElement || !this.videoElement) return;
+    if (!this.showWebcamInfo) return;
 
-    const resolutionInfo = document.getElementById('resolution-info');
-    const fpsInfo = document.getElementById('fps-info');
-    const zoomInfo = document.getElementById('zoom-info');
-    const offsetInfo = document.getElementById('offset-info');
-    const windowSizeInfo = document.getElementById('window-size-info');
-    const windowDistanceInfo = document.getElementById('window-distance-info');
-
-    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo && windowSizeInfo && windowDistanceInfo) {
-      const videoWidth = this.videoElement.videoWidth;
-      const videoHeight = this.videoElement.videoHeight;
-
-      if (videoWidth && videoHeight) {
-        resolutionInfo.textContent = `Res: ${videoWidth}x${videoHeight}`;
-
-        // Get actual FPS from video track
-        if (this.currentStream) {
-          const videoTracks = this.currentStream.getVideoTracks();
-          if (videoTracks.length > 0) {
-            const settings = videoTracks[0].getSettings();
-            const fps = settings.frameRate ? Math.round(settings.frameRate) : '--';
-            fpsInfo.textContent = `FPS: ${fps}`;
-          }
-        }
-      }
-
-      // Update zoom info
-      zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
-
-      // Update offset info
-      offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
-
-      // Update window info
-      const windowInfo = this.getWindowInfo();
-      windowSizeInfo.textContent = `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`;
-      windowDistanceInfo.textContent = `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`;
+    const videoWidth = this.videoElement?.videoWidth;
+    const videoHeight = this.videoElement?.videoHeight;
+    if (videoWidth && videoHeight) {
+      this.writeInfoLine('resolution-info', `Res: ${videoWidth}x${videoHeight}`);
+      this.writeInfoLine('fps-info', `FPS: ${this.getStreamFps()}`);
     }
+
+    this.writeInfoLine('zoom-info', `Zoom: ${this.currentZoom.toFixed(1)}x`);
+    this.writeInfoLine('offset-info', `Offset: ${Math.round(this.currentOffsetX)}, ${Math.round(this.currentOffsetY)}`);
+
+    const speed = this.faceTracker?.getMovementSpeed();
+    if (speed) {
+      this.writeInfoLine('speed-info', `Speed: ${Math.round(speed.current)} px/s (max ${Math.round(speed.peak)})`);
+    }
+
+    const windowInfo = this.getWindowInfo();
+    this.writeInfoLine('window-size-info', `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`);
+    this.writeInfoLine('window-distance-info', `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`);
   }
 
-  // Force update webcam info regardless of visibility
-  forceUpdateWebcamInfo() {
-    const resolutionInfo = document.getElementById('resolution-info');
-    const fpsInfo = document.getElementById('fps-info');
-    const zoomInfo = document.getElementById('zoom-info');
-    const offsetInfo = document.getElementById('offset-info');
-    const windowSizeInfo = document.getElementById('window-size-info');
-    const windowDistanceInfo = document.getElementById('window-distance-info');
+  writeInfoLine(elementId, text) {
+    const element = document.getElementById(elementId);
+    if (element) element.textContent = text;
+  }
 
-    if (resolutionInfo && fpsInfo && zoomInfo && offsetInfo && windowSizeInfo && windowDistanceInfo) {
-      const videoWidth = this.videoElement?.videoWidth;
-      const videoHeight = this.videoElement?.videoHeight;
-
-      if (videoWidth && videoHeight) {
-        resolutionInfo.textContent = `Res: ${videoWidth}x${videoHeight}`;
-
-        // Get actual FPS from video track
-        if (this.currentStream) {
-          const videoTracks = this.currentStream.getVideoTracks();
-          if (videoTracks.length > 0) {
-            const settings = videoTracks[0].getSettings();
-            const fps = settings.frameRate ? Math.round(settings.frameRate) : '--';
-            fpsInfo.textContent = `FPS: ${fps}`;
-          }
-        }
-      }
-
-      // Always update zoom and offset info
-      zoomInfo.textContent = `Zoom: ${this.currentZoom.toFixed(1)}x`;
-      offsetInfo.textContent = `Offset: ${this.currentOffsetX}, ${this.currentOffsetY}`;
-
-      // Always update window info
-      const windowInfo = this.getWindowInfo();
-      windowSizeInfo.textContent = `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`;
-      windowDistanceInfo.textContent = `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`;
-    }
+  getStreamFps() {
+    const videoTrack = this.currentStream?.getVideoTracks()[0];
+    const frameRate = videoTrack?.getSettings().frameRate;
+    return frameRate ? Math.round(frameRate) : '--';
   }
 
   // Apply zoom to video element
@@ -582,7 +542,7 @@ class CameraPiP {
     this.applyAllTransformsWithFlip();
 
     // Force update webcam info regardless of visibility
-    this.forceUpdateWebcamInfo();
+    this.updateWebcamInfo();
   }
 
   // Apply offset to video element
@@ -597,7 +557,7 @@ class CameraPiP {
     this.applyAllTransformsWithFlip();
 
     // Force update webcam info regardless of visibility
-    this.forceUpdateWebcamInfo();
+    this.updateWebcamInfo();
   }
 
   // Apply all transforms considering flip
@@ -641,7 +601,7 @@ class CameraPiP {
     this.applyAllTransformsWithFlip();
 
     // Force update webcam info regardless of visibility
-    this.forceUpdateWebcamInfo();
+    this.updateWebcamInfo();
   }
 
   // Get current transforms (without flip)

@@ -32,7 +32,7 @@ class FaceTracker {
       onFatalError: () => this.setEnabled(false),
     });
     // Taratura scelta dall'utente: arriva dai settings via setTuning (main → IPC)
-    this.tuning = { maxZoom: 0, speed: 3, delaySeconds: 0, tolerance: 3 };
+    this.tuning = { maxZoom: 0, speed: 3, delaySeconds: 0, tolerance: 3, framing: DEFAULT_TRACKING_FRAMING, easing: 1 };
     this.isEnabled = false;
     this.face = null; // centro-occhi filtrato del volto agganciato, coordinate normalizzate del frame raw
     this.lastFaceSeenAt = 0;
@@ -44,6 +44,12 @@ class FaceTracker {
     this.animationFrameId = null;
     this.lastFrameAt = 0;
     this.lastPersistAt = 0;
+    this.movementSpeed = 0; // px/s dell'ultimo passo applicato, letto dal pannello info
+    this.peakMovementSpeed = 0; // picco della corsa in corso, azzerato quando il moto si ferma
+  }
+
+  getMovementSpeed() {
+    return { current: this.movementSpeed, peak: this.peakMovementSpeed };
   }
 
   setTuning(tuning) {
@@ -84,6 +90,8 @@ class FaceTracker {
     this.face = null;
     this.policy.reset();
     this.motion.reset();
+    this.movementSpeed = 0;
+    this.peakMovementSpeed = 0;
   }
 
   // Conta i fotogrammi davvero consegnati dalla camera. currentTime non serve
@@ -148,13 +156,21 @@ class FaceTracker {
     const desired = this.policy.desiredFor(this.face, this.lastFaceSeenAt, geometry, now);
     if (!desired) {
       this.motion.reset();
+      this.recordMovementSpeed(0, deltaSeconds);
       return;
     }
     const view = this.getView();
     const omega = TRACKING_SPEED_OMEGAS[this.tuning.speed] * desired.speedBoost;
-    const next = this.motion.step(view, desired, geometry, omega, deltaSeconds);
-    const isStill = Math.abs(next.zoom - view.zoom) < 0.0005 && Math.abs(next.offsetX - view.offsetX) < 0.05 && Math.abs(next.offsetY - view.offsetY) < 0.05;
-    if (isStill) return;
+    const easingRatio = TRACKING_EASING_RATIOS[this.tuning.easing] ?? 0;
+    const next = this.motion.step(view, desired, geometry, omega, easingRatio, deltaSeconds);
+    // Il passo si scarta solo se è minuscolo *e* la vista è già arrivata: un
+    // passo minuscolo mentre il bersaglio è ancora lontano è la partenza
+    // graduale dell'easing, e scartarlo la faceva sparire del tutto.
+    if (isTinyStep(view, next) && isAtTarget(view, desired)) {
+      this.recordMovementSpeed(0, deltaSeconds);
+      return;
+    }
+    this.recordMovementSpeed(Math.hypot(next.offsetX - view.offsetX, next.offsetY - view.offsetY), deltaSeconds);
     this.applyZoom(next.zoom);
     this.applyOffset(next.offsetX, next.offsetY);
     if (now - this.lastPersistAt >= TRACKING_TUNING.persistIntervalMs) {
@@ -163,9 +179,31 @@ class FaceTracker {
     }
   }
 
+  // deltaSeconds può essere 0 se due frame cadono nello stesso millisecondo.
+  recordMovementSpeed(distance, deltaSeconds) {
+    const speed = deltaSeconds > 0 ? distance / deltaSeconds : 0;
+    // Il picco si azzera all'inizio di una corsa nuova, non alla fine di
+    // quella vecchia: così dopo l'arrivo resta leggibile nel pannello info.
+    if (this.movementSpeed === 0 && speed > 0) this.peakMovementSpeed = 0;
+    this.movementSpeed = speed;
+    this.peakMovementSpeed = Math.max(this.peakMovementSpeed, speed);
+  }
+
   persistView() {
     const view = this.getView();
     window.electronAPI.send('zoom-request', 'set-level', view.zoom);
     window.electronAPI.send('offset-request', 'set-position', { x: view.offsetX, y: view.offsetY });
   }
+}
+
+function isTinyStep(view, next) {
+  return Math.abs(next.zoom - view.zoom) < 0.0005
+    && Math.abs(next.offsetX - view.offsetX) < 0.05
+    && Math.abs(next.offsetY - view.offsetY) < 0.05;
+}
+
+function isAtTarget(view, desired) {
+  return Math.abs(desired.zoom - view.zoom) < 0.005
+    && Math.abs(desired.offsetX - view.offsetX) < 0.5
+    && Math.abs(desired.offsetY - view.offsetY) < 0.5;
 }

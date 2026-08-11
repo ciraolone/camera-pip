@@ -1,11 +1,13 @@
 /**
  * Matematica pura della vista per il face tracking: converte le coordinate
  * normalizzate del volto (frame raw della webcam) nella geometria della
- * finestra, calcola gli offset che portano gli occhi nel punto bersaglio, il
+ * finestra, calcola gli offset che portano gli occhi sul punto bersaglio, il
  * clamp che impedisce all'inquadratura di uscire dai bordi dell'immagine e il
- * minimo zoom necessario a rendere raggiungibile il bersaglio. Solo funzioni
- * pure senza stato: lo stato e i loop vivono in face-tracker.js, che è
- * l'unico consumatore di questo file.
+ * minimo zoom necessario. L'inquadratura mira sempre al punto bersaglio; la
+ * zona ammessa è solo un metro alternativo per misurare l'errore, e serve a
+ * decidere quando muoversi e quanto zoom tenere a riposo. Solo funzioni pure
+ * senza stato: lo stato e i loop vivono in face-tracker.js, che con
+ * face-chase-policy.js è l'unico consumatore di questo file.
  */
 
 // Misure di layout (offsetWidth/Height), non toccate dai transform CSS: con
@@ -25,33 +27,62 @@ function computeViewGeometry(videoElement) {
   };
 }
 
-// Posizione del volto nel piano dell'elemento (origine al centro) e bersaglio
-// verticale degli occhi. Le coordinate del volto arrivano dal frame raw, mai
-// specchiato: il flip entra solo nel calcolo della posizione a schermo.
-function computeFacePlacement(face, geometry, isFlipped, targetEyeFraction) {
+// Posizione del volto nel piano dell'elemento (origine al centro), punto
+// bersaglio e bordi della zona ammessa. Le coordinate del volto arrivano dal
+// frame raw, mai specchiato: il flip entra solo nella posizione a schermo.
+function computeFacePlacement(face, geometry, isFlipped, zone) {
   return {
     flipSign: isFlipped ? -1 : 1,
     faceCx: (face.u - 0.5) * geometry.contentWidth,
     faceCy: (face.v - 0.5) * geometry.contentHeight,
-    targetY: (targetEyeFraction - 0.5) * geometry.windowHeight,
+    targetX: (zone.targetX - 0.5) * geometry.windowWidth,
+    targetY: (zone.targetY - 0.5) * geometry.windowHeight,
+    zoneLeft: (zone.left - 0.5) * geometry.windowWidth,
+    zoneRight: (zone.right - 0.5) * geometry.windowWidth,
+    zoneTop: (zone.top - 0.5) * geometry.windowHeight,
+    zoneBottom: (zone.bottom - 0.5) * geometry.windowHeight,
   };
 }
 
-// L'offset che centra il volto in orizzontale è identico con e senza flip:
-// lo specchio mappa il centro sul centro. Cambierebbe solo con un bersaglio
-// orizzontale diverso dal centro (targetX ≠ 0).
+// Dove appaiono gli occhi nella finestra (origine al centro) con questi zoom e
+// offset. Con flip attivo lo specchio inverte solo l'asse orizzontale.
+function screenPositionOf(placement, zoom, offsetX, offsetY) {
+  return {
+    x: placement.flipSign * (zoom * placement.faceCx + offsetX),
+    y: zoom * placement.faceCy + offsetY,
+  };
+}
+
+function clampBetween(value, low, high) {
+  return Math.min(Math.max(value, low), high);
+}
+
+// Gli offset che portano gli occhi esattamente sul punto bersaglio. È l'unico
+// bersaglio dell'inquadratura: la zona non sposta mai la mira, decide soltanto
+// quando vale la pena muoversi (vedi faceErrorFromZone).
 function desiredOffsetsFor(placement, zoom) {
   return {
-    offsetX: -zoom * placement.faceCx,
+    offsetX: placement.flipSign * placement.targetX - zoom * placement.faceCx,
     offsetY: placement.targetY - zoom * placement.faceCy,
   };
 }
 
-// Distanza in pixel fra dove appaiono gli occhi a schermo e il punto bersaglio.
-function faceErrorAt(placement, zoom, offsetX, offsetY) {
-  const screenX = placement.flipSign * (zoom * placement.faceCx + offsetX);
-  const screenY = zoom * placement.faceCy + offsetY;
-  return Math.hypot(screenX, screenY - placement.targetY);
+// Distanza in pixel dal punto bersaglio: dice quanto manca all'inquadratura
+// giusta, quindi governa l'arresto dell'inseguimento e il calcolo dello zoom.
+function faceErrorFromTarget(placement, zoom, offsetX, offsetY) {
+  const screen = screenPositionOf(placement, zoom, offsetX, offsetY);
+  return Math.hypot(screen.x - placement.targetX, screen.y - placement.targetY);
+}
+
+// Distanza in pixel dalla zona ammessa, zero finché gli occhi ci stanno
+// dentro: dice se c'è motivo di muoversi, quindi governa la partenza
+// dell'inseguimento e fin dove lo zoom può rientrare a riposo.
+function faceErrorFromZone(placement, zoom, offsetX, offsetY) {
+  const screen = screenPositionOf(placement, zoom, offsetX, offsetY);
+  return Math.hypot(
+    screen.x - clampBetween(screen.x, placement.zoneLeft, placement.zoneRight),
+    screen.y - clampBetween(screen.y, placement.zoneTop, placement.zoneBottom)
+  );
 }
 
 // Clamp ai bordi (invariante del plan della feature 001): oltre questi limiti
@@ -71,23 +102,27 @@ function clampAbs(value, bound) {
 // un nuovo valore: si ricava la posizione attuale a schermo e la si impone al
 // nuovo zoom. Usato dal release "zoom al minimo indispensabile".
 function zoomReleaseOffsetsFor(placement, view, zoom) {
-  const screenX = placement.flipSign * (view.zoom * placement.faceCx + view.offsetX);
-  const screenY = view.zoom * placement.faceCy + view.offsetY;
+  const screen = screenPositionOf(placement, view.zoom, view.offsetX, view.offsetY);
   return {
-    offsetX: placement.flipSign * screenX - zoom * placement.faceCx,
-    offsetY: screenY - zoom * placement.faceCy,
+    offsetX: placement.flipSign * screen.x - zoom * placement.faceCx,
+    offsetY: screen.y - zoom * placement.faceCy,
   };
 }
 
-// Il minimo zoom (a passi di scanStep) con cui il bersaglio diventa
-// raggiungibile rispettando il clamp; maxZoom se non basta mai.
-function minimalZoomFor(placement, geometry, maxZoom, stopRadius, scanStep) {
+// L'errore che resta a questo zoom dopo aver puntato al bersaglio e subito il
+// clamp ai bordi: zero quando il bersaglio è raggiungibile, positivo quando
+// l'immagine finisce prima. errorAt sceglie il metro (bersaglio o zona).
+function residualErrorAt(placement, geometry, zoom, errorAt) {
+  const bounds = offsetBoundsFor(geometry, zoom);
+  const offsets = desiredOffsetsFor(placement, zoom);
+  return errorAt(placement, zoom, clampAbs(offsets.offsetX, bounds.x), clampAbs(offsets.offsetY, bounds.y));
+}
+
+// Il minimo zoom (a passi di scanStep) che porta l'errore misurato da errorAt
+// entro stopRadius rispettando il clamp; maxZoom se non basta mai.
+function minimalZoomFor(placement, geometry, maxZoom, stopRadius, scanStep, errorAt) {
   for (let zoom = 1; zoom <= maxZoom + 1e-9; zoom += scanStep) {
-    const bounds = offsetBoundsFor(geometry, zoom);
-    const offsets = desiredOffsetsFor(placement, zoom);
-    const offsetX = clampAbs(offsets.offsetX, bounds.x);
-    const offsetY = clampAbs(offsets.offsetY, bounds.y);
-    if (faceErrorAt(placement, zoom, offsetX, offsetY) <= stopRadius) return zoom;
+    if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius) return zoom;
   }
   return maxZoom;
 }
