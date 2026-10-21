@@ -28,13 +28,17 @@ function startShipping() {
 }
 
 async function shipRound() {
-  if (isShipping) {return;}
+  if (isShipping) {
+    return;
+  }
   isShipping = true;
   try {
     let requestsLeft = MAX_REQUESTS_PER_ROUND;
     for (const fileName of listJournalNames()) {
       requestsLeft = await shipJournal(fileName, requestsLeft);
-      if (requestsLeft <= 0) {break;}
+      if (requestsLeft <= 0) {
+        break;
+      }
     }
     noteReceiverUp();
   } catch (error) {
@@ -55,7 +59,9 @@ async function shipJournal(fileName, requestsLeft) {
       ? await readWholeLines(filePath, from, size)
       : Buffer.alloc(0);
     // Niente di nuovo, oppure l'ultima riga è ancora a metà: se ne riparla al giro dopo
-    if (isKnown && chunk.length === 0) {return requestsLeft;}
+    if (isKnown && chunk.length === 0) {
+      return requestsLeft;
+    }
     requestsLeft -= 1;
     confirmedBytes.set(fileName, await sendChunk(fileName, from, chunk));
   }
@@ -65,7 +71,9 @@ async function shipJournal(fileName, requestsLeft) {
 // Il pezzo si taglia all'ultimo a capo: il server riceve solo righe intere, e un carattere accentato non viene mai spezzato a metà
 async function readWholeLines(filePath, from, size) {
   const length = Math.min(Math.max(size - from, 0), CHUNK_MAX_BYTES);
-  if (length === 0) {return Buffer.alloc(0);}
+  if (length === 0) {
+    return Buffer.alloc(0);
+  }
   const handle = await fs.promises.open(filePath, 'r');
   try {
     const buffer = Buffer.alloc(length);
@@ -89,17 +97,20 @@ async function sendChunk(fileName, from, chunk) {
     body: chunk,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (!response.ok)
-    {throw new Error(
+  if (!response.ok) {
+    throw new Error(
       `il server ha risposto ${response.status}: ${await response.text()}`,
-    );}
+    );
+  }
   const { ricevuti } = await response.json();
   return ricevuti;
 }
 
 // Un laptop fuori casa o senza rete è la normalità, non un guasto: si annota il passaggio, una volta, e si riprova in silenzio
 function noteReceiverDown(error) {
-  if (isReceiverDown) {return;}
+  if (isReceiverDown) {
+    return;
+  }
   isReceiverDown = true;
   logLine(
     'invio',
@@ -108,7 +119,9 @@ function noteReceiverDown(error) {
 }
 
 function noteReceiverUp() {
-  if (!isReceiverDown) {return;}
+  if (!isReceiverDown) {
+    return;
+  }
   isReceiverDown = false;
   logLine('invio', 'invio del diario al server ripreso');
 }

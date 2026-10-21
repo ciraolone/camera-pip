@@ -3,12 +3,14 @@
  */
 
 function describeTrackingForDiary(faceTracker, view) {
-  if (!faceTracker)
-    {return { isTrackingEnabled: false, tracking: 'non ancora creato' };}
+  if (!faceTracker) {
+    return { isTrackingEnabled: false, tracking: 'non ancora creato' };
+  }
   // I contatori si leggono anche a tracking spento, così si azzerano e il battito dopo la riaccensione non si porta dietro numeri vecchi
   const detection = faceTracker.detection.takeDiaryCounters();
-  if (!faceTracker.isEnabled)
-    {return { isTrackingEnabled: false, tracking: 'spento' };}
+  if (!faceTracker.isEnabled) {
+    return { isTrackingEnabled: false, tracking: 'spento' };
+  }
   const light = faceTracker.getLightState();
   const luma = light.luma === null ? '--' : Math.round(light.luma);
   const parts = [
@@ -19,6 +21,8 @@ function describeTrackingForDiary(faceTracker, view) {
     `volto=${faceTracker.face ? 'agganciato' : 'nessuno'} inseguimento=${faceTracker.policy.isChasing ? 'sì' : 'no'}`,
     `vista(zoom=${view.zoom.toFixed(2)} x=${Math.round(view.offsetX)} y=${Math.round(view.offsetY)})`,
   ];
-  if (detection.lastError) {parts.push(`ultimo-errore=${detection.lastError}`);}
+  if (detection.lastError) {
+    parts.push(`ultimo-errore=${detection.lastError}`);
+  }
   return { isTrackingEnabled: true, tracking: parts.join(' ') };
 }
