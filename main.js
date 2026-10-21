@@ -8,10 +8,14 @@
  * i canali set-level/set-position, che salvano senza rimandare l'evento.
  * Serve anche al renderer, via read-vendor-file, gli asset di
  * vendor/mediapipe/ e il worker del face tracking (whitelist rigida). Apre
- * infine il diario di diagnostica (log-journal.js) e gli passa quello che
+ * infine il diario di diagnostica (log-journal.js), gli passa quello che
  * succede alla finestra, agli schermi e al battito del renderer tramite
- * log-diagnostics.js.
+ * log-diagnostics.js, ci annota ogni accensione e spegnimento del face
+ * tracking con chi l'ha deciso, e lo fa spedire al server (log-shipper.js).
  */
+
+const fs = require('fs');
+const path = require('path');
 
 const {
   app,
@@ -22,16 +26,20 @@ const {
   ipcMain,
   systemPreferences,
   shell,
-} = require("electron");
-const path = require("path");
-const fs = require("fs");
-const windowStateKeeper = require("electron-window-state");
-const { openJournal, getLogsFolder, logLine } = require("./log-journal");
-const { startDiagnostics, watchWindow, handleRendererBeat } = require("./log-diagnostics");
-const { requestRepaint, setPeriodicRefresh } = require("./window-repaint");
+} = require('electron');
+const windowStateKeeper = require('electron-window-state');
+
+const {
+  startDiagnostics,
+  watchWindow,
+  handleRendererBeat,
+} = require('./log-diagnostics');
+const { openJournal, getLogsFolder, logLine } = require('./log-journal');
+const { startShipping } = require('./log-shipper');
+const { requestRepaint, setPeriodicRefresh } = require('./window-repaint');
 
 // Set AppUserModelId early so Windows correctly associates window and taskbar button
-app.setAppUserModelId("com.camerapip.app");
+app.setAppUserModelId('com.camerapip.app');
 
 // Su Windows Chromium decide da solo quando una finestra è completamente
 // coperta e smette di comporla per risparmiare. Il calcolo sbaglia sulle
@@ -40,98 +48,98 @@ app.setAppUserModelId("com.camerapip.app");
 // si sblocca solo spostando o ridimensionando la finestra (è quello che
 // forza il ricalcolo). Va disabilitato prima di whenReady, altrimenti la
 // riga non ha effetto.
-app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 // Constants
 const APP_CONFIG = {
-  title: "Ciraolone",
+  title: 'Ciraolone',
   defaultWidth: 800,
   defaultHeight: 600,
-  defaultResolution: "default",
-  defaultFps: "default",
-  defaultFlip: "normal",
+  defaultResolution: 'default',
+  defaultFps: 'default',
+  defaultFlip: 'normal',
 };
 
 const RESOLUTIONS = [
-  { label: "Default", value: "default" },
-  { label: "4K (3840x2160)", value: "3840x2160" },
-  { label: "1080p (1920x1080)", value: "1920x1080" },
-  { label: "720p (1280x720)", value: "1280x720" },
-  { label: "480p (640x480)", value: "640x480" },
-  { label: "360p (640x360)", value: "640x360" },
+  { label: 'Default', value: 'default' },
+  { label: '4K (3840x2160)', value: '3840x2160' },
+  { label: '1080p (1920x1080)', value: '1920x1080' },
+  { label: '720p (1280x720)', value: '1280x720' },
+  { label: '480p (640x480)', value: '640x480' },
+  { label: '360p (640x360)', value: '640x360' },
 ];
 
 const FPS_OPTIONS = [
-  { label: "Default", value: "default" },
-  { label: "60 FPS", value: 60 },
-  { label: "59.94 FPS", value: 59.94 },
-  { label: "50 FPS", value: 50 },
-  { label: "30 FPS", value: 30 },
-  { label: "29.97 FPS", value: 29.97 },
-  { label: "25 FPS", value: 25 },
-  { label: "24 FPS", value: 24 },
+  { label: 'Default', value: 'default' },
+  { label: '60 FPS', value: 60 },
+  { label: '59.94 FPS', value: 59.94 },
+  { label: '50 FPS', value: 50 },
+  { label: '30 FPS', value: 30 },
+  { label: '29.97 FPS', value: 29.97 },
+  { label: '25 FPS', value: 25 },
+  { label: '24 FPS', value: 24 },
 ];
 
 // Ritocco periodico della finestra: rete di sicurezza opzionale contro i
 // blocchi del disegno che la sentinella non riesce a vedere. Spento di serie,
 // perché la scossa automatica scatta già da sola quando serve.
 const WINDOW_REFRESH_OPTIONS = [
-  { label: "Off", value: 0 },
-  { label: "Every 5s", value: 5 },
-  { label: "Every 15s", value: 15 },
-  { label: "Every 30s", value: 30 },
-  { label: "Every 60s", value: 60 },
+  { label: 'Off', value: 0 },
+  { label: 'Every 5s', value: 5 },
+  { label: 'Every 15s', value: 15 },
+  { label: 'Every 30s', value: 30 },
+  { label: 'Every 60s', value: 60 },
 ];
 
 const FLIP_OPTIONS = [
-  { label: "Normal", value: "normal" },
-  { label: "Flipped", value: "flipped" },
-  { label: "Auto", value: "auto" },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Flipped', value: 'flipped' },
+  { label: 'Auto', value: 'auto' },
 ];
 
 // 0 = Off: il tracking sposta solo l'inquadratura, senza mai toccare lo zoom
 const TRACKING_ZOOM_OPTIONS = [
-  { label: "Off", value: 0 },
-  { label: "1.25x", value: 1.25 },
-  { label: "1.5x", value: 1.5 },
-  { label: "1.75x", value: 1.75 },
-  { label: "2x", value: 2 },
-  { label: "3x", value: 3 },
+  { label: 'Off', value: 0 },
+  { label: '1.25x', value: 1.25 },
+  { label: '1.5x', value: 1.5 },
+  { label: '1.75x', value: 1.75 },
+  { label: '2x', value: 2 },
+  { label: '3x', value: 3 },
 ];
 
 // I livelli di velocità e tolleranza sono chiavi delle scale fisiche definite
 // in face-tracker-tuning.js: qui vive solo la scelta dell'utente
 const TRACKING_SPEED_OPTIONS = [
-  { label: "1 (slowest)", value: 1 },
-  { label: "2", value: 2 },
-  { label: "3", value: 3 },
-  { label: "4", value: 4 },
-  { label: "5 (fastest)", value: 5 },
+  { label: '1 (slowest)', value: 1 },
+  { label: '2', value: 2 },
+  { label: '3', value: 3 },
+  { label: '4', value: 4 },
+  { label: '5 (fastest)', value: 5 },
 ];
 
 // Quanto sono accentuate la partenza e la frenata del movimento
 const TRACKING_EASING_OPTIONS = [
-  { label: "1 (none)", value: 1 },
-  { label: "2 (medium)", value: 2 },
-  { label: "3 (strong)", value: 3 },
+  { label: '1 (none)', value: 1 },
+  { label: '2 (medium)', value: 2 },
+  { label: '3 (strong)', value: 3 },
 ];
 
 // Attesa prima che l'inseguimento parta dopo uno spostamento, in secondi
 const TRACKING_DELAY_OPTIONS = [
-  { label: "Off", value: 0 },
-  { label: "0.5s", value: 0.5 },
-  { label: "1s", value: 1 },
-  { label: "1.5s", value: 1.5 },
-  { label: "2s", value: 2 },
+  { label: 'Off', value: 0 },
+  { label: '0.5s', value: 0.5 },
+  { label: '1s', value: 1 },
+  { label: '1.5s', value: 1.5 },
+  { label: '2s', value: 2 },
 ];
 
 // Quanto il volto può allontanarsi dal bersaglio prima che l'inseguimento parta
 const TRACKING_TOLERANCE_OPTIONS = [
-  { label: "1 (smallest)", value: 1 },
-  { label: "2", value: 2 },
-  { label: "3", value: 3 },
-  { label: "4", value: 4 },
-  { label: "5 (largest)", value: 5 },
+  { label: '1 (smallest)', value: 1 },
+  { label: '2', value: 2 },
+  { label: '3', value: 3 },
+  { label: '4', value: 4 },
+  { label: '5 (largest)', value: 5 },
 ];
 
 // Quanto è larga la zona in cui il volto va bene così com'è. I livelli sono
@@ -139,12 +147,12 @@ const TRACKING_TOLERANCE_OPTIONS = [
 // traduce nei bordi della zona; le etichette ricordano i tre punti di
 // riferimento attorno a cui la scala è stata costruita.
 const TRACKING_FRAMING_OPTIONS = [
-  { label: "1 (strict)", value: 1 },
-  { label: "2", value: 2 },
-  { label: "3 (normal)", value: 3 },
-  { label: "4", value: 4 },
-  { label: "5 (relaxed)", value: 5 },
-  { label: "6 (loosest)", value: 6 },
+  { label: '1 (strict)', value: 1 },
+  { label: '2', value: 2 },
+  { label: '3 (normal)', value: 3 },
+  { label: '4', value: 4 },
+  { label: '5 (relaxed)', value: 5 },
+  { label: '6 (loosest)', value: 6 },
 ];
 
 // Unici file serviti dal handler read-vendor-file: whitelist rigida
@@ -152,11 +160,19 @@ const TRACKING_FRAMING_OPTIONS = [
 // tracking è codice nostro, non vendor, ma passa dallo stesso canale: il
 // renderer non può leggerlo in altro modo (fetch/XHR verso file:// bloccati).
 const RENDERER_READABLE_FILES = {
-  "vision_bundle.mjs": ["vendor", "mediapipe", "vision_bundle.mjs"],
-  "vision_wasm_internal.js": ["vendor", "mediapipe", "vision_wasm_internal.js"],
-  "vision_wasm_internal.wasm": ["vendor", "mediapipe", "vision_wasm_internal.wasm"],
-  "blaze_face_short_range.tflite": ["vendor", "mediapipe", "blaze_face_short_range.tflite"],
-  "face-detection-worker.js": ["face-detection-worker.js"],
+  'vision_bundle.mjs': ['vendor', 'mediapipe', 'vision_bundle.mjs'],
+  'vision_wasm_internal.js': ['vendor', 'mediapipe', 'vision_wasm_internal.js'],
+  'vision_wasm_internal.wasm': [
+    'vendor',
+    'mediapipe',
+    'vision_wasm_internal.wasm',
+  ],
+  'blaze_face_short_range.tflite': [
+    'vendor',
+    'mediapipe',
+    'blaze_face_short_range.tflite',
+  ],
+  'face-detection-worker.js': ['face-detection-worker.js'],
 };
 
 // Global state
@@ -169,7 +185,7 @@ const KEY_DEBOUNCE_DELAY = 150; // Milliseconds
 
 // Initialize store
 async function initStore() {
-  const { default: Store } = await import("electron-store");
+  const { default: Store } = await import('electron-store');
   store = new Store();
 }
 
@@ -195,9 +211,9 @@ function createWindow() {
     // taskbar button when moved by external tools (AltSnap, etc.). Setting it
     // true hides the button — the tray icon is always present to restore.
     skipTaskbar: settings.skipTaskbar,
-    icon: path.join(__dirname, "icon.ico"),
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
@@ -213,9 +229,9 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   windowState.manage(mainWindow);
   watchWindow(mainWindow);
-  mainWindow.loadFile("index.html");
+  mainWindow.loadFile('index.html');
 
-  mainWindow.webContents.on("context-menu", (e, params) => {
+  mainWindow.webContents.on('context-menu', (e, params) => {
     e.preventDefault();
     const settings = getSettings();
     const contextMenu = buildContextMenu(settings);
@@ -227,68 +243,71 @@ function createWindow() {
   // di ricaricare, perché con il tracking persistito attivo l'app rientrava in
   // crash pochi secondi dopo ogni riapertura finché l'utente non lo spegneva a
   // mano dal menu. clean-exit e killed sono uscite normali, non crash.
-  mainWindow.webContents.on("render-process-gone", (event, details) => {
-    if (details.reason === "clean-exit" || details.reason === "killed") return;
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    if (details.reason === 'clean-exit' || details.reason === 'killed') {return;}
     console.error(
-      `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`
+      `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
     );
-    logLine("anomalia", `renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`);
+    logLine(
+      'anomalia',
+      `renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
+    );
     if (getSettings().faceTracking) {
       saveSettings({ faceTracking: false });
     }
     mainWindow?.webContents.reload();
   });
 
-  mainWindow.on("closed", () => {
+  mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
-  mainWindow.on("show", updateTrayMenu);
-  mainWindow.on("hide", updateTrayMenu);
-  mainWindow.on("minimize", updateTrayMenu);
-  mainWindow.on("restore", updateTrayMenu);
+  mainWindow.on('show', updateTrayMenu);
+  mainWindow.on('hide', updateTrayMenu);
+  mainWindow.on('minimize', updateTrayMenu);
+  mainWindow.on('restore', updateTrayMenu);
 
   // Setup keyboard shortcuts
-  mainWindow.webContents.on("before-input-event", (event, input) => {
+  mainWindow.webContents.on('before-input-event', (event, input) => {
     const currentTime = Date.now();
 
     // Prevent key repeat - only allow one action per key press
     if (
-      input.type === "keyDown" &&
+      input.type === 'keyDown' &&
       currentTime - lastKeyTime > KEY_DEBOUNCE_DELAY
     ) {
       if (input.control || input.meta) {
-        if (input.key === "i" || input.key === "I") {
+        if (input.key === 'i' || input.key === 'I') {
           lastKeyTime = currentTime;
           toggleWebcamInfo();
           event.preventDefault();
-        } else if (input.key === "=" || input.key === "+") {
+        } else if (input.key === '=' || input.key === '+') {
           lastKeyTime = currentTime;
-          changeZoom("in");
+          changeZoom('in');
           event.preventDefault();
-        } else if (input.key === "-") {
+        } else if (input.key === '-') {
           lastKeyTime = currentTime;
-          changeZoom("out");
+          changeZoom('out');
           event.preventDefault();
-        } else if (input.key === "0") {
+        } else if (input.key === '0') {
           lastKeyTime = currentTime;
           resetView();
           event.preventDefault();
-        } else if (input.key === "ArrowUp") {
+        } else if (input.key === 'ArrowUp') {
           lastKeyTime = currentTime;
-          changeOffset("up");
+          changeOffset('up');
           event.preventDefault();
-        } else if (input.key === "ArrowDown") {
+        } else if (input.key === 'ArrowDown') {
           lastKeyTime = currentTime;
-          changeOffset("down");
+          changeOffset('down');
           event.preventDefault();
-        } else if (input.key === "ArrowLeft") {
+        } else if (input.key === 'ArrowLeft') {
           lastKeyTime = currentTime;
-          changeOffset("left");
+          changeOffset('left');
           event.preventDefault();
-        } else if (input.key === "ArrowRight") {
+        } else if (input.key === 'ArrowRight') {
           lastKeyTime = currentTime;
-          changeOffset("right");
+          changeOffset('right');
           event.preventDefault();
         }
       }
@@ -298,35 +317,35 @@ function createWindow() {
 
 // Tray management
 function toggleWindow() {
-  if (!mainWindow) return;
+  if (!mainWindow) {return;}
   if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
     mainWindow.hide();
   } else {
-    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (mainWindow.isMinimized()) {mainWindow.restore();}
     mainWindow.show();
     mainWindow.focus();
   }
 }
 
 function updateTrayMenu() {
-  if (!tray) return;
+  if (!tray) {return;}
   const isVisible = mainWindow?.isVisible() && !mainWindow?.isMinimized();
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: isVisible ? "Hide" : "Show", click: toggleWindow },
-      { type: "separator" },
-      { role: "quit" },
-    ])
+      { label: isVisible ? 'Hide' : 'Show', click: toggleWindow },
+      { type: 'separator' },
+      { role: 'quit' },
+    ]),
   );
 }
 
 function createTray() {
   const icon = nativeImage
-    .createFromPath(path.join(__dirname, "icon.ico"))
+    .createFromPath(path.join(__dirname, 'icon.ico'))
     .resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip("Camera PiP");
-  tray.on("click", toggleWindow);
+  tray.setToolTip('Camera PiP');
+  tray.on('click', toggleWindow);
   updateTrayMenu();
 }
 
@@ -334,40 +353,42 @@ function createTray() {
 function getSettings() {
   return {
     resolution:
-      store?.get("resolution", APP_CONFIG.defaultResolution) ||
+      store?.get('resolution', APP_CONFIG.defaultResolution) ||
       APP_CONFIG.defaultResolution,
-    fps: store?.get("fps", APP_CONFIG.defaultFps) || APP_CONFIG.defaultFps,
-    selectedDeviceId: store?.get("selectedDeviceId") || null,
-    showWebcamInfo: store?.get("showWebcamInfo", false) || false,
-    alwaysOnTop: store?.get("alwaysOnTop", false) || false,
-    windowRefreshSeconds: store ? store.get("windowRefreshSeconds", 0) : 0,
-    zoomLevel: store?.get("zoomLevel", 1) || 1,
-    offsetX: store?.get("offsetX", 0) || 0,
-    offsetY: store?.get("offsetY", 0) || 0,
-    flip: store?.get("flip", APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip,
-    autoFlipActive: store?.get("autoFlipActive", false) || false,
-    skipTaskbar: store?.get("skipTaskbar", false) || false,
-    faceTracking: store ? store.get("faceTracking", false) : false,
+    fps: store?.get('fps', APP_CONFIG.defaultFps) || APP_CONFIG.defaultFps,
+    selectedDeviceId: store?.get('selectedDeviceId') || null,
+    showWebcamInfo: store?.get('showWebcamInfo', false) || false,
+    alwaysOnTop: store?.get('alwaysOnTop', false) || false,
+    windowRefreshSeconds: store ? store.get('windowRefreshSeconds', 0) : 0,
+    zoomLevel: store?.get('zoomLevel', 1) || 1,
+    offsetX: store?.get('offsetX', 0) || 0,
+    offsetY: store?.get('offsetY', 0) || 0,
+    flip: store?.get('flip', APP_CONFIG.defaultFlip) || APP_CONFIG.defaultFlip,
+    autoFlipActive: store?.get('autoFlipActive', false) || false,
+    skipTaskbar: store?.get('skipTaskbar', false) || false,
+    faceTracking: store ? store.get('faceTracking', false) : false,
     // Niente "|| default": 0 (Off) è un valore valido e "||" lo mangerebbe
-    faceTrackingMaxZoom: store ? store.get("faceTrackingMaxZoom", 1.5) : 1.5,
-    faceTrackingSpeed: store ? store.get("faceTrackingSpeed", 3) : 3,
-    faceTrackingDelay: store ? store.get("faceTrackingDelay", 0) : 0,
-    faceTrackingTolerance: store ? store.get("faceTrackingTolerance", 3) : 3,
+    faceTrackingMaxZoom: store ? store.get('faceTrackingMaxZoom', 1.5) : 1.5,
+    faceTrackingSpeed: store ? store.get('faceTrackingSpeed', 3) : 3,
+    faceTrackingDelay: store ? store.get('faceTrackingDelay', 0) : 0,
+    faceTrackingTolerance: store ? store.get('faceTrackingTolerance', 3) : 3,
     faceTrackingFraming: readTrackingFraming(),
-    faceTrackingEasing: store ? store.get("faceTrackingEasing", 2) : 2,
+    faceTrackingEasing: store ? store.get('faceTrackingEasing', 2) : 2,
   };
 }
 
 // Un valore salvato da una versione precedente non deve lasciare il submenu
 // senza spunta né la policy senza zona bersaglio: si ricade sul default.
 function readTrackingFraming() {
-  const saved = store?.get("faceTrackingFraming");
-  const isKnown = TRACKING_FRAMING_OPTIONS.some((option) => option.value === saved);
+  const saved = store?.get('faceTrackingFraming');
+  const isKnown = TRACKING_FRAMING_OPTIONS.some(
+    (option) => option.value === saved,
+  );
   return isKnown ? saved : 3;
 }
 
 function saveSettings(settings) {
-  if (!store) return;
+  if (!store) {return;}
 
   Object.entries(settings).forEach(([key, value]) => {
     if (value !== undefined) {
@@ -380,7 +401,7 @@ function saveSettings(settings) {
 function buildRadioSubmenu(options, currentValue, onSelect) {
   return options.map((option) => ({
     label: option.label,
-    type: "radio",
+    type: 'radio',
     checked: option.value === currentValue,
     click: () => onSelect(option.value),
   }));
@@ -392,14 +413,61 @@ function buildRadioSubmenu(options, currentValue, onSelect) {
 function buildFaceTrackingSubmenu(settings) {
   const forKey = (key) => (value) => changeTrackingSetting(key, value);
   return [
-    { label: "Enabled", type: "checkbox", checked: settings.faceTracking, click: () => toggleFaceTracking() },
-    { type: "separator" },
-    { label: "Zoom", submenu: buildRadioSubmenu(TRACKING_ZOOM_OPTIONS, settings.faceTrackingMaxZoom, forKey("faceTrackingMaxZoom")) },
-    { label: "Speed", submenu: buildRadioSubmenu(TRACKING_SPEED_OPTIONS, settings.faceTrackingSpeed, forKey("faceTrackingSpeed")) },
-    { label: "Easing", submenu: buildRadioSubmenu(TRACKING_EASING_OPTIONS, settings.faceTrackingEasing, forKey("faceTrackingEasing")) },
-    { label: "Delay", submenu: buildRadioSubmenu(TRACKING_DELAY_OPTIONS, settings.faceTrackingDelay, forKey("faceTrackingDelay")) },
-    { label: "Tolerance", submenu: buildRadioSubmenu(TRACKING_TOLERANCE_OPTIONS, settings.faceTrackingTolerance, forKey("faceTrackingTolerance")) },
-    { label: "Framing", submenu: buildRadioSubmenu(TRACKING_FRAMING_OPTIONS, settings.faceTrackingFraming, forKey("faceTrackingFraming")) },
+    {
+      label: 'Enabled',
+      type: 'checkbox',
+      checked: settings.faceTracking,
+      click: () => toggleFaceTracking(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Zoom',
+      submenu: buildRadioSubmenu(
+        TRACKING_ZOOM_OPTIONS,
+        settings.faceTrackingMaxZoom,
+        forKey('faceTrackingMaxZoom'),
+      ),
+    },
+    {
+      label: 'Speed',
+      submenu: buildRadioSubmenu(
+        TRACKING_SPEED_OPTIONS,
+        settings.faceTrackingSpeed,
+        forKey('faceTrackingSpeed'),
+      ),
+    },
+    {
+      label: 'Easing',
+      submenu: buildRadioSubmenu(
+        TRACKING_EASING_OPTIONS,
+        settings.faceTrackingEasing,
+        forKey('faceTrackingEasing'),
+      ),
+    },
+    {
+      label: 'Delay',
+      submenu: buildRadioSubmenu(
+        TRACKING_DELAY_OPTIONS,
+        settings.faceTrackingDelay,
+        forKey('faceTrackingDelay'),
+      ),
+    },
+    {
+      label: 'Tolerance',
+      submenu: buildRadioSubmenu(
+        TRACKING_TOLERANCE_OPTIONS,
+        settings.faceTrackingTolerance,
+        forKey('faceTrackingTolerance'),
+      ),
+    },
+    {
+      label: 'Framing',
+      submenu: buildRadioSubmenu(
+        TRACKING_FRAMING_OPTIONS,
+        settings.faceTrackingFraming,
+        forKey('faceTrackingFraming'),
+      ),
+    },
   ];
 }
 
@@ -410,28 +478,63 @@ function buildCameraSubmenu(settings) {
     videoDevices.length > 0
       ? videoDevices.map((device) => ({
           label: device.label || `Camera ${device.deviceId.substring(0, 8)}`,
-          type: "radio",
+          type: 'radio',
           checked: device.deviceId === settings.selectedDeviceId,
           click: () => selectDevice(device.deviceId),
         }))
-      : [{ label: "No cameras found", enabled: false }];
+      : [{ label: 'No cameras found', enabled: false }];
 
   return [
     ...deviceItems,
-    { type: "separator" },
-    { label: "Resolution", submenu: buildRadioSubmenu(RESOLUTIONS, settings.resolution, changeResolution) },
-    { label: "Frame Rate", submenu: buildRadioSubmenu(FPS_OPTIONS, settings.fps, changeFps) },
-    { label: "Flip", submenu: buildRadioSubmenu(FLIP_OPTIONS, settings.flip, changeFlip) },
+    { type: 'separator' },
+    {
+      label: 'Resolution',
+      submenu: buildRadioSubmenu(
+        RESOLUTIONS,
+        settings.resolution,
+        changeResolution,
+      ),
+    },
+    {
+      label: 'Frame Rate',
+      submenu: buildRadioSubmenu(FPS_OPTIONS, settings.fps, changeFps),
+    },
+    {
+      label: 'Flip',
+      submenu: buildRadioSubmenu(FLIP_OPTIONS, settings.flip, changeFlip),
+    },
   ];
 }
 
 // Interruttori che riguardano la finestra in sé, non l'immagine che mostra.
 function buildWindowSubmenu(settings) {
   return [
-    { label: "Always on Top", type: "checkbox", checked: settings.alwaysOnTop, click: () => toggleAlwaysOnTop() },
-    { label: "Hide from Taskbar", type: "checkbox", checked: settings.skipTaskbar, click: () => toggleSkipTaskbar() },
-    { label: "Info webcam", type: "checkbox", checked: settings.showWebcamInfo, click: () => toggleWebcamInfo() },
-    { label: "Auto Refresh", submenu: buildRadioSubmenu(WINDOW_REFRESH_OPTIONS, settings.windowRefreshSeconds, changeWindowRefresh) },
+    {
+      label: 'Always on Top',
+      type: 'checkbox',
+      checked: settings.alwaysOnTop,
+      click: () => toggleAlwaysOnTop(),
+    },
+    {
+      label: 'Hide from Taskbar',
+      type: 'checkbox',
+      checked: settings.skipTaskbar,
+      click: () => toggleSkipTaskbar(),
+    },
+    {
+      label: 'Info webcam',
+      type: 'checkbox',
+      checked: settings.showWebcamInfo,
+      click: () => toggleWebcamInfo(),
+    },
+    {
+      label: 'Auto Refresh',
+      submenu: buildRadioSubmenu(
+        WINDOW_REFRESH_OPTIONS,
+        settings.windowRefreshSeconds,
+        changeWindowRefresh,
+      ),
+    },
   ];
 }
 
@@ -440,16 +543,16 @@ function buildWindowSubmenu(settings) {
 // ma lo rende scrollabile. Raggruppare tiene il menu corto e sempre intero.
 function buildContextMenu(settings) {
   const template = [
-    { label: "Camera", submenu: buildCameraSubmenu(settings) },
-    { label: "Face Tracking", submenu: buildFaceTrackingSubmenu(settings) },
-    { label: "Window", submenu: buildWindowSubmenu(settings) },
-    { type: "separator" },
-    { label: "Reset View", click: () => resetView() },
-    { label: "Open Logs Folder", click: () => shell.openPath(getLogsFolder()) },
-    { role: "reload" },
-    { role: "toggleDevTools" },
-    { type: "separator" },
-    { role: "quit" },
+    { label: 'Camera', submenu: buildCameraSubmenu(settings) },
+    { label: 'Face Tracking', submenu: buildFaceTrackingSubmenu(settings) },
+    { label: 'Window', submenu: buildWindowSubmenu(settings) },
+    { type: 'separator' },
+    { label: 'Reset View', click: () => resetView() },
+    { label: 'Open Logs Folder', click: () => shell.openPath(getLogsFolder()) },
+    { role: 'reload' },
+    { role: 'toggleDevTools' },
+    { type: 'separator' },
+    { role: 'quit' },
   ];
 
   return Menu.buildFromTemplate(template);
@@ -458,14 +561,14 @@ function buildContextMenu(settings) {
 // Zoom e spostamento manuali si azzerano sempre insieme: da soli lasciano
 // un'inquadratura a metà che l'utente deve comunque finire di sistemare.
 function resetView() {
-  changeZoom("reset");
-  changeOffset("reset");
+  changeZoom('reset');
+  changeOffset('reset');
 }
 
 // Device selection
 function selectDevice(deviceId) {
   saveSettings({ selectedDeviceId: deviceId });
-  mainWindow?.webContents.send("device-selected", deviceId);
+  mainWindow?.webContents.send('device-selected', deviceId);
 }
 
 // Settings changes
@@ -482,7 +585,7 @@ function changeFps(fps) {
 function changeFlip(flip) {
   saveSettings({ flip });
   // Don't call notifySettingsChanged() to avoid camera restart
-  mainWindow?.webContents.send("flip-changed", flip);
+  mainWindow?.webContents.send('flip-changed', flip);
 }
 
 // Face tracking management
@@ -490,12 +593,17 @@ function toggleFaceTracking() {
   const settings = getSettings();
   const newValue = !settings.faceTracking;
   saveSettings({ faceTracking: newValue });
-  mainWindow?.webContents.send("face-tracking-changed", newValue);
+  logLine('tracking', `${newValue ? 'acceso' : 'spento'} dal menu`);
+  mainWindow?.webContents.send('face-tracking-changed', newValue);
 }
 
 function changeTrackingSetting(key, value) {
   saveSettings({ [key]: value });
-  mainWindow?.webContents.send("face-tracking-tuning-changed", getTrackingTuning());
+  logLine('tracking', `taratura cambiata dal menu: ${key}=${value}`);
+  mainWindow?.webContents.send(
+    'face-tracking-tuning-changed',
+    getTrackingTuning(),
+  );
 }
 
 // L'oggetto di taratura viaggia sempre intero sul canale unico
@@ -515,11 +623,12 @@ function getTrackingTuning() {
 // Qualsiasi comando manuale di zoom/offset ridà il controllo all'utente:
 // il tracking si spegne e la spunta nel menu sparisce (scenario
 // "Attivazione e disattivazione" della feature 001)
-function disableFaceTrackingForManualCommand() {
+function disableFaceTrackingForManualCommand(command) {
   const settings = getSettings();
-  if (!settings.faceTracking) return;
+  if (!settings.faceTracking) {return;}
+  logLine('tracking', `spento dal comando manuale ${command}`);
   saveSettings({ faceTracking: false });
-  mainWindow?.webContents.send("face-tracking-changed", false);
+  mainWindow?.webContents.send('face-tracking-changed', false);
 }
 
 function toggleWebcamInfo() {
@@ -527,7 +636,7 @@ function toggleWebcamInfo() {
   const newValue = !settings.showWebcamInfo;
   saveSettings({ showWebcamInfo: newValue });
   notifySettingsChanged();
-  mainWindow?.webContents.send("webcam-info-toggled", newValue);
+  mainWindow?.webContents.send('webcam-info-toggled', newValue);
 }
 
 function changeWindowRefresh(seconds) {
@@ -550,31 +659,31 @@ function toggleSkipTaskbar() {
 }
 
 function notifySettingsChanged() {
-  mainWindow?.webContents.send("settings-changed");
+  mainWindow?.webContents.send('settings-changed');
 }
 
 // Offset management
 function changeOffset(direction) {
-  disableFaceTrackingForManualCommand();
+  disableFaceTrackingForManualCommand(`sposta-${direction}`);
   const settings = getSettings();
   let newOffsetX = settings.offsetX;
   let newOffsetY = settings.offsetY;
   const step = 5; // Pixel per step
 
   switch (direction) {
-    case "up":
+    case 'up':
       newOffsetY = Math.max(newOffsetY - step, -200);
       break;
-    case "down":
+    case 'down':
       newOffsetY = Math.min(newOffsetY + step, 200);
       break;
-    case "left":
+    case 'left':
       newOffsetX = Math.max(newOffsetX - step, -200);
       break;
-    case "right":
+    case 'right':
       newOffsetX = Math.min(newOffsetX + step, 200);
       break;
-    case "reset":
+    case 'reset':
       newOffsetX = 0;
       newOffsetY = 0;
       break;
@@ -582,7 +691,7 @@ function changeOffset(direction) {
 
   saveSettings({ offsetX: newOffsetX, offsetY: newOffsetY });
   if (mainWindow && mainWindow.webContents) {
-    mainWindow.webContents.send("offset-changed", {
+    mainWindow.webContents.send('offset-changed', {
       x: newOffsetX,
       y: newOffsetY,
     });
@@ -591,60 +700,60 @@ function changeOffset(direction) {
 
 // Zoom management
 function changeZoom(direction) {
-  disableFaceTrackingForManualCommand();
+  disableFaceTrackingForManualCommand(`zoom-${direction}`);
   const settings = getSettings();
   let newZoomLevel = settings.zoomLevel;
 
-  if (direction === "in") {
+  if (direction === 'in') {
     newZoomLevel = Math.min(newZoomLevel + 0.1, 5); // Max zoom 5x
-  } else if (direction === "out") {
+  } else if (direction === 'out') {
     newZoomLevel = Math.max(newZoomLevel - 0.1, 1.0); // Min zoom 1.0x (cannot go below window fill)
-  } else if (direction === "reset") {
+  } else if (direction === 'reset') {
     newZoomLevel = 1;
   }
 
   newZoomLevel = Math.round(newZoomLevel * 10) / 10; // Round to 1 decimal
   saveSettings({ zoomLevel: newZoomLevel });
-  mainWindow?.webContents.send("zoom-changed", newZoomLevel);
+  mainWindow?.webContents.send('zoom-changed', newZoomLevel);
 }
 
 // Permission handling
 async function requestCameraPermission() {
-  if (process.platform !== "darwin") return true;
+  if (process.platform !== 'darwin') {return true;}
 
   try {
-    return await systemPreferences.askForMediaAccess("camera");
+    return await systemPreferences.askForMediaAccess('camera');
   } catch (error) {
-    console.error("Camera permission error:", error);
+    console.error('Camera permission error:', error);
     return false;
   }
 }
 
 // IPC handlers
 function setupIPC() {
-  ipcMain.on("devices-updated", (event, devices) => {
-    videoDevices = devices.filter((device) => device.kind === "videoinput");
+  ipcMain.on('devices-updated', (event, devices) => {
+    videoDevices = devices.filter((device) => device.kind === 'videoinput');
   });
 
-  ipcMain.handle("get-settings", () => getSettings());
+  ipcMain.handle('get-settings', () => getSettings());
 
   // Handle device selection from renderer
-  ipcMain.on("device-active", (event, deviceId) => {
+  ipcMain.on('device-active', (event, deviceId) => {
     if (deviceId) {
       saveSettings({ selectedDeviceId: deviceId });
     }
   });
 
   // Handle webcam info update
-  ipcMain.on("webcam-info-update", (event, info) => {
+  ipcMain.on('webcam-info-update', (event, info) => {
     if (mainWindow) {
-      mainWindow.webContents.send("webcam-info-data", info);
+      mainWindow.webContents.send('webcam-info-data', info);
     }
   });
 
   // Handle zoom requests from renderer
-  ipcMain.on("zoom-request", (event, direction, value) => {
-    if (direction === "set-level" && typeof value === "number") {
+  ipcMain.on('zoom-request', (event, direction, value) => {
+    if (direction === 'set-level' && typeof value === 'number') {
       // Direct zoom level setting from renderer
       const newZoomLevel = Math.round(value * 10) / 10;
       saveSettings({ zoomLevel: newZoomLevel });
@@ -655,8 +764,8 @@ function setupIPC() {
   });
 
   // Handle offset requests from renderer
-  ipcMain.on("offset-request", (event, direction, value) => {
-    if (direction === "set-position" && typeof value === "object") {
+  ipcMain.on('offset-request', (event, direction, value) => {
+    if (direction === 'set-position' && typeof value === 'object') {
       // Direct offset setting from renderer
       const newOffsetX = Math.round(value.x);
       const newOffsetY = Math.round(value.y);
@@ -668,19 +777,19 @@ function setupIPC() {
   });
 
   // Handle auto flip state changes from renderer
-  ipcMain.on("auto-flip-state-changed", (event, autoFlipActive) => {
+  ipcMain.on('auto-flip-state-changed', (event, autoFlipActive) => {
     saveSettings({ autoFlipActive });
   });
 
   // I file whitelistati (asset MediaPipe + worker del tracking) si servono via
   // IPC perché fetch/XHR verso file:// è bloccato da Chromium — vedi plan 001
-  ipcMain.on("debug-beat", (event, beat) => handleRendererBeat(beat));
+  ipcMain.on('debug-beat', (event, beat) => handleRendererBeat(beat));
 
   // La finestra si è accorta di non essere più disegnata: la scossa la può
   // dare solo il main, che è chi possiede la finestra
-  ipcMain.on("repaint-request", () => requestRepaint(mainWindow));
+  ipcMain.on('repaint-request', () => requestRepaint(mainWindow));
 
-  ipcMain.handle("read-vendor-file", (event, fileName) => {
+  ipcMain.handle('read-vendor-file', (event, fileName) => {
     const relativePath = RENDERER_READABLE_FILES[fileName];
     if (!relativePath) {
       throw new Error(`File non consentito: ${fileName}`);
@@ -692,8 +801,12 @@ function setupIPC() {
 // App initialization
 async function initialize() {
   try {
-    openJournal(app.getPath("userData"));
-    startDiagnostics(() => mainWindow);
+    openJournal(app.getPath('userData'));
+    startDiagnostics(
+      () => mainWindow,
+      () => getSettings().faceTracking,
+    );
+    startShipping();
     await initStore();
     setupIPC();
 
@@ -706,8 +819,8 @@ async function initialize() {
     createTray();
     setPeriodicRefresh(() => mainWindow, getSettings().windowRefreshSeconds);
   } catch (error) {
-    console.error("Initialization error:", error);
-    logLine("anomalia", `avvio fallito: ${error}`);
+    console.error('Initialization error:', error);
+    logLine('anomalia', `avvio fallito: ${error}`);
     app.quit();
   }
 }
@@ -718,7 +831,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on('second-instance', () => {
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
@@ -729,13 +842,13 @@ if (!gotTheLock) {
 // App events
 app.whenReady().then(initialize);
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on("activate", () => {
+app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   } else if (mainWindow) {
@@ -745,12 +858,15 @@ app.on("activate", () => {
 });
 
 // Error handling
-process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
-  logLine("anomalia", `eccezione non gestita nel main: ${error?.stack ?? error}`);
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+  logLine(
+    'anomalia',
+    `eccezione non gestita nel main: ${error?.stack ?? error}`,
+  );
 });
 
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled rejection:", reason);
-  logLine("anomalia", `promessa rifiutata senza gestione: ${reason}`);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled rejection:', reason);
+  logLine('anomalia', `promessa rifiutata senza gestione: ${reason}`);
 });

@@ -5,7 +5,8 @@
  * mostrati dal video, che conta già video-stall-watcher.js e qui si leggono
  * da lì invece di contarli una seconda volta — e ogni dieci secondi li manda
  * al processo main sul canale debug-beat, insieme allo stato della traccia
- * video, alla memoria occupata e a una riga sullo stato del face tracking. È
+ * video, alla memoria occupata e allo stato del face tracking (acceso o no e
+ * una riga di dettaglio, preparata da face-tracker-diary.js). È
  * il confronto fra questi contatori a distinguere, a posteriori, un'app
  * bloccata da un'immagine ferma perché nessuno la ridisegna: la lettura la fa
  * log-diagnostics.js, qui si contano e basta.
@@ -15,7 +16,12 @@ const HEARTBEAT_TICK_MS = 1000; // giro del timer: la sua irregolarità misura i
 const HEARTBEAT_BEAT_MS = 10000; // ogni quanto il riepilogo parte verso il main
 
 class Heartbeat {
-  constructor({ videoElement, getVideoTrack, getDeliveredFrames, describeTracking }) {
+  constructor({
+    videoElement,
+    getVideoTrack,
+    getDeliveredFrames,
+    describeTracking,
+  }) {
     this.videoElement = videoElement;
     this.getVideoTrack = getVideoTrack;
     this.getDeliveredFrames = getDeliveredFrames;
@@ -54,7 +60,7 @@ class Heartbeat {
     this.timerTicks += 1;
     this.maxTimerGapMs = Math.max(this.maxTimerGapMs, now - this.lastTickAt);
     this.lastTickAt = now;
-    if (now - this.beatStartedAt < HEARTBEAT_BEAT_MS) return;
+    if (now - this.beatStartedAt < HEARTBEAT_BEAT_MS) {return;}
     this.sendBeat(now);
   }
 
@@ -74,7 +80,7 @@ class Heartbeat {
       isTrackMuted: videoTrack ? videoTrack.muted : false,
       isHidden: document.hidden,
       heapMegabytes: this.readHeapMegabytes(),
-      tracking: this.describeTracking(),
+      ...this.describeTracking(),
     });
     this.timerTicks = 0;
     this.maxTimerGapMs = 0;
@@ -90,12 +96,12 @@ class Heartbeat {
   // contatore che distingue una camera morta da un'immagine che nessuno
   // ridisegna, cioè i due guasti che a occhio sembrano identici.
   readDecodedFrames() {
-    if (!this.videoElement.getVideoPlaybackQuality) return 0;
+    if (!this.videoElement.getVideoPlaybackQuality) {return 0;}
     return this.videoElement.getVideoPlaybackQuality().totalVideoFrames;
   }
 
   readHeapMegabytes() {
-    if (!performance.memory) return 0;
+    if (!performance.memory) {return 0;}
     return Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
   }
 }

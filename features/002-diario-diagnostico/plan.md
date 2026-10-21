@@ -13,6 +13,10 @@ Tre file nuovi e aggiunte minime a quelli esistenti. Il processo main possiede i
 - `preload.js` — canale `debug-beat` in whitelist (`send`).
 - `renderer.js` — istanzia e avvia `Heartbeat` subito dopo il face tracker, prima di `startCamera` così il diario copre anche un avvio della camera che fallisce; espone `describeTrackingState()` per la riga del battito.
 - `index.html` — `<script>` di `log-heartbeat.js` prima di `renderer.js`.
+- `log-shipper.js` (nuovo, main, 2026-10-21) — spedizione al server: ogni 30 s le righe nuove di ogni diario in `logs/` verso `https://home-server.tail6fec67.ts.net/diari/ricevi`, a pezzi di righe intere.
+- `face-tracker-diary.js` (nuovo, renderer, 2026-10-21) — la riga del face tracking nel battito e il flag acceso/spento che il main confronta con il menu.
+- `face-detection-client.js` — contatori per il battito (richieste, risposte, volti, errori, frame saltati) e cattura di `onerror` del worker.
+- Lato server, nel repo homelab: `host/api/scenarios/diari/ricevi.py` (endpoint `POST /diari/ricevi` di homelab-api), file in `~/data/diari/<app>/<computer>/`.
 
 ## Decisioni di design
 
@@ -27,6 +31,11 @@ Tre file nuovi e aggiunte minime a quelli esistenti. Il processo main possiede i
 - **Sempre acceso, nessun interruttore.** Il guasto è raro e non si prevede: un interruttore garantirebbe soltanto che il diario sia spento il giorno che serve.
 - **Rotazione per avvio, non per data.** Un file per avvio, ordinabile per nome perché il nome contiene la data ISO; si tengono gli ultimi cinque e ogni file si ferma a 20 MB. Chi indaga vuole "l'ultima volta che è successo", che è quasi sempre un avvio intero.
 - **Categorie in italiano** (`avvio`, `battito`, `anomalia`, `finestra`, `schermo`, `alimentazione`, `console`): il diario lo legge anche l'utente, e la prima cosa che deve poter fare è cercare `anomalia` nel file.
+
+- **Nessuna memoria di spedizione sull'app.** Ogni pezzo dichiara da che byte comincia, il server accoda solo la parte nuova e risponde con quanti byte ha: è quella risposta a dire da dove ripartire. Il primo contatto con un file è una domanda a vuoto, così i diari vecchi non si rispediscono a ogni avvio. Niente doppioni dopo un invio ripetuto, niente buchi dopo un invio perso, niente file di stato da tenere allineato.
+- **Il diario locale è anche la coda.** Se il server non risponde non serve un buffer a parte: le righe sono già sul disco, si riprova al giro dopo. Il tetto di 40 richieste per giro fa recuperare in qualche giro una lunga assenza senza una raffica sola.
+- **Il face tracking annota con `console.log`**, che il travaso della console porta già nel diario: le transizioni (acceso/spento con motivo, inseguimento partito/arrivato) passano da lì, i contatori dal battito.
+- **Il disaccordo menu/finestra ha un suo stato**, separato dalle anomalie dell'immagine, perché può durare insieme a loro e nessuno dei due deve nascondere l'altro.
 
 ## Invarianti
 

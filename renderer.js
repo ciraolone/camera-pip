@@ -43,7 +43,9 @@ class CameraPiP {
       this.videoElement = document.getElementById('webcam');
       this.webcamInfoElement = document.getElementById('webcam-info');
       // Prima di updateWebcamInfoVisibility, che lo accende insieme al pannello
-      this.framingOverlay = new FramingOverlay(document.getElementById('framing-overlay'));
+      this.framingOverlay = new FramingOverlay(
+        document.getElementById('framing-overlay'),
+      );
 
       if (!this.videoElement) {
         throw new Error('Video element not found');
@@ -70,11 +72,7 @@ class CameraPiP {
         applyZoom: (zoomLevel) => this.applyZoom(zoomLevel),
         applyOffset: (offsetX, offsetY) => this.applyOffset(offsetX, offsetY),
         getEffectiveFlip: () => this.getEffectiveFlip(),
-        getView: () => ({
-          zoom: this.currentZoom,
-          offsetX: this.currentOffsetX,
-          offsetY: this.currentOffsetY,
-        }),
+        getView: () => this.getView(),
       });
       this.faceTracker.setTuning({
         maxZoom: settings.faceTrackingMaxZoom,
@@ -85,7 +83,10 @@ class CameraPiP {
         easing: settings.faceTrackingEasing,
       });
       this.framingOverlay.setFraming(settings.faceTrackingFraming);
-      this.faceTracker.setEnabled(settings.faceTracking);
+      this.faceTracker.setEnabled(
+        settings.faceTracking,
+        "all'avvio, dai settings",
+      );
 
       // Sorveglia l'immagine sempre, anche a tracking spento: i due guasti
       // che la fermano non hanno niente a che vedere con il face tracking
@@ -102,7 +103,8 @@ class CameraPiP {
         videoElement: this.videoElement,
         getVideoTrack: () => this.currentStream?.getVideoTracks()[0],
         getDeliveredFrames: () => this.stallWatcher.getDeliveredFrames(),
-        describeTracking: () => this.describeTrackingState(),
+        describeTracking: () =>
+          describeTrackingForDiary(this.faceTracker, this.getView()),
       });
       this.heartbeat.start();
 
@@ -145,7 +147,10 @@ class CameraPiP {
     });
 
     window.electronAPI.receive('face-tracking-changed', (isEnabled) => {
-      this.faceTracker?.setEnabled(isEnabled);
+      this.faceTracker?.setEnabled(
+        isEnabled,
+        'su ordine del processo principale',
+      );
     });
 
     window.electronAPI.receive('face-tracking-tuning-changed', (tuning) => {
@@ -276,7 +281,6 @@ class CameraPiP {
       if (actualDeviceId) {
         window.electronAPI.send('device-active', actualDeviceId);
       }
-
     } catch (error) {
       console.error('Camera start error:', error);
       await this.handleError(error);
@@ -286,7 +290,7 @@ class CameraPiP {
   // Stop current camera stream
   async stopCamera() {
     if (this.currentStream) {
-      this.currentStream.getTracks().forEach(track => track.stop());
+      this.currentStream.getTracks().forEach((track) => track.stop());
       this.currentStream = null;
     }
 
@@ -310,7 +314,7 @@ class CameraPiP {
       return {
         resolution: 'default',
         fps: 'default',
-        selectedDeviceId: null
+        selectedDeviceId: null,
       };
     }
   }
@@ -318,7 +322,7 @@ class CameraPiP {
   // Create video constraints
   createConstraints(deviceId, settings) {
     const constraints = {
-      video: {}
+      video: {},
     };
 
     // Handle resolution
@@ -376,14 +380,14 @@ class CameraPiP {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          frameRate: { ideal: 30 }
-        }
+          frameRate: { ideal: 30 },
+        },
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+      const stream =
+        await navigator.mediaDevices.getUserMedia(fallbackConstraints);
       this.videoElement.srcObject = stream;
       this.currentStream = stream;
-
     } catch (error) {
       await this.retryConnection();
     }
@@ -397,7 +401,7 @@ class CameraPiP {
     }
 
     this.retryCount++;
-    await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+    await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
 
     const settings = await this.getSettings();
     await this.startCamera(settings.selectedDeviceId);
@@ -408,20 +412,19 @@ class CameraPiP {
     try {
       // Request camera permission first
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track) => track.stop());
 
       // Get device list
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const serialized = devices.map(device => ({
+      const serialized = devices.map((device) => ({
         deviceId: device.deviceId,
         kind: device.kind,
         label: device.label || `Device ${device.deviceId.substring(0, 8)}`,
-        groupId: device.groupId
+        groupId: device.groupId,
       }));
 
       // Send to main process
       window.electronAPI.send('devices-updated', serialized);
-
     } catch (error) {
       console.error('Device list error:', error);
       window.electronAPI.send('devices-updated', []);
@@ -480,12 +483,12 @@ class CameraPiP {
   getWindowInfo() {
     const windowSize = {
       width: window.innerWidth,
-      height: window.innerHeight
+      height: window.innerHeight,
     };
 
     const windowPosition = {
       x: window.screenX,
-      y: window.screenY
+      y: window.screenY,
     };
 
     // Calculate distances from screen edges
@@ -494,14 +497,16 @@ class CameraPiP {
 
     const distanceFromLeft = windowPosition.x;
     const distanceFromTop = windowPosition.y;
-    const distanceFromRight = screenWidth - (windowPosition.x + windowSize.width);
-    const distanceFromBottom = screenHeight - (windowPosition.y + windowSize.height);
+    const distanceFromRight =
+      screenWidth - (windowPosition.x + windowSize.width);
+    const distanceFromBottom =
+      screenHeight - (windowPosition.y + windowSize.height);
 
     const distances = {
       left: Math.max(0, distanceFromLeft),
       top: Math.max(0, distanceFromTop),
       right: Math.max(0, distanceFromRight),
-      bottom: Math.max(0, distanceFromBottom)
+      bottom: Math.max(0, distanceFromBottom),
     };
 
     return { windowSize, windowPosition, distances };
@@ -511,46 +516,63 @@ class CameraPiP {
   // (resize, focus, timer) sia applyZoom/applyOffset a ogni frame del tracking:
   // è quest'ultima chiamata che rende la riga della velocità leggibile dal vivo.
   updateWebcamInfo() {
-    if (!this.showWebcamInfo) return;
+    if (!this.showWebcamInfo) {return;}
 
     const videoWidth = this.videoElement?.videoWidth;
     const videoHeight = this.videoElement?.videoHeight;
     if (videoWidth && videoHeight) {
-      this.writeInfoLine('resolution-info', `Res: ${videoWidth}x${videoHeight}`);
+      this.writeInfoLine(
+        'resolution-info',
+        `Res: ${videoWidth}x${videoHeight}`,
+      );
       this.writeInfoLine('fps-info', `FPS: ${this.getStreamFps()}`);
     }
 
     this.writeInfoLine('zoom-info', `Zoom: ${this.currentZoom.toFixed(1)}x`);
-    this.writeInfoLine('offset-info', `Offset: ${Math.round(this.currentOffsetX)}, ${Math.round(this.currentOffsetY)}`);
+    this.writeInfoLine(
+      'offset-info',
+      `Offset: ${Math.round(this.currentOffsetX)}, ${Math.round(this.currentOffsetY)}`,
+    );
 
     const speed = this.faceTracker?.getMovementSpeed();
     if (speed) {
-      this.writeInfoLine('speed-info', `Speed: ${Math.round(speed.current)} px/s (max ${Math.round(speed.peak)})`);
+      this.writeInfoLine(
+        'speed-info',
+        `Speed: ${Math.round(speed.current)} px/s (max ${Math.round(speed.peak)})`,
+      );
     }
 
     const light = this.faceTracker?.getLightState();
     if (light) {
       const luma = light.luma === null ? '--' : Math.round(light.luma);
-      this.writeInfoLine('light-info', `Luce: ${luma}${light.isSuspended ? ' (tracking in pausa)' : ''}`);
+      this.writeInfoLine(
+        'light-info',
+        `Luce: ${luma}${light.isSuspended ? ' (tracking in pausa)' : ''}`,
+      );
     }
 
     const windowInfo = this.getWindowInfo();
-    this.writeInfoLine('window-size-info', `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`);
-    this.writeInfoLine('window-distance-info', `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`);
+    this.writeInfoLine(
+      'window-size-info',
+      `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`,
+    );
+    this.writeInfoLine(
+      'window-distance-info',
+      `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`,
+    );
   }
 
-  // Riga compatta per il diario: serve a correlare un blocco con quello che
-  // il face tracking stava facendo in quel momento.
-  describeTrackingState() {
-    if (!this.faceTracker?.isEnabled) return 'spento';
-    const light = this.faceTracker.getLightState();
-    const luma = light.luma === null ? '--' : Math.round(light.luma);
-    return `acceso luce=${luma}${light.isSuspended ? ' in-pausa-per-buio' : ''}`;
+  getView() {
+    return {
+      zoom: this.currentZoom,
+      offsetX: this.currentOffsetX,
+      offsetY: this.currentOffsetY,
+    };
   }
 
   writeInfoLine(elementId, text) {
     const element = document.getElementById(elementId);
-    if (element) element.textContent = text;
+    if (element) {element.textContent = text;}
   }
 
   getStreamFps() {
@@ -561,7 +583,7 @@ class CameraPiP {
 
   // Apply zoom to video element
   applyZoom(zoomLevel) {
-    if (!this.videoElement) return;
+    if (!this.videoElement) {return;}
 
     // Calculate minimum zoom to fill window
     this.calculateMinZoom();
@@ -582,7 +604,7 @@ class CameraPiP {
 
   // Apply offset to video element
   applyOffset(offsetX, offsetY) {
-    if (!this.videoElement) return;
+    if (!this.videoElement) {return;}
 
     // Update current offset
     this.currentOffsetX = offsetX;
@@ -597,7 +619,7 @@ class CameraPiP {
 
   // Apply all transforms considering flip
   applyAllTransformsWithFlip() {
-    if (!this.videoElement) return;
+    if (!this.videoElement) {return;}
 
     const baseTransforms = this.getCurrentTransforms();
     const effectiveFlip = this.getEffectiveFlip();
@@ -615,7 +637,7 @@ class CameraPiP {
 
   // Apply flip to video element
   applyFlip(flip) {
-    if (!this.videoElement) return;
+    if (!this.videoElement) {return;}
 
     // Save previous flip mode to detect actual changes
     const previousFlip = this.currentFlip;
@@ -645,7 +667,9 @@ class CameraPiP {
 
     // 1. Offset (translate)
     if (this.currentOffsetX !== 0 || this.currentOffsetY !== 0) {
-      transforms.push(`translate(${this.currentOffsetX}px, ${this.currentOffsetY}px)`);
+      transforms.push(
+        `translate(${this.currentOffsetX}px, ${this.currentOffsetY}px)`,
+      );
     }
 
     // 2. Zoom (scale)
@@ -659,7 +683,11 @@ class CameraPiP {
 
   // Calculate minimum zoom level to fill window
   calculateMinZoom() {
-    if (!this.videoElement || !this.videoElement.videoWidth || !this.videoElement.videoHeight) {
+    if (
+      !this.videoElement ||
+      !this.videoElement.videoWidth ||
+      !this.videoElement.videoHeight
+    ) {
       this.minZoomLevel = 1;
       return;
     }
@@ -673,7 +701,8 @@ class CameraPiP {
   getWindowPositionPercentage() {
     const windowInfo = this.getWindowInfo();
     const screenWidth = window.screen.width;
-    const windowCenterX = windowInfo.windowPosition.x + (windowInfo.windowSize.width / 2);
+    const windowCenterX =
+      windowInfo.windowPosition.x + windowInfo.windowSize.width / 2;
 
     return windowCenterX / screenWidth;
   }
@@ -690,7 +719,7 @@ class CameraPiP {
 
   // Check auto flip with delayed execution and timer reset
   checkAutoFlip() {
-    if (this.currentFlip !== 'auto') return;
+    if (this.currentFlip !== 'auto') {return;}
 
     // If timer is already running, don't start a new check
     if (this.autoFlipTimer) {
@@ -721,9 +750,11 @@ class CameraPiP {
         let finalShouldFlip = false;
 
         if (!this.autoFlipActive) {
-          finalShouldFlip = currentPositionPercentage > this.autoFlipThresholdActivate;
+          finalShouldFlip =
+            currentPositionPercentage > this.autoFlipThresholdActivate;
         } else {
-          finalShouldFlip = currentPositionPercentage >= this.autoFlipThresholdDeactivate;
+          finalShouldFlip =
+            currentPositionPercentage >= this.autoFlipThresholdDeactivate;
         }
 
         // Apply the change if still needed
@@ -731,7 +762,10 @@ class CameraPiP {
           this.autoFlipActive = finalShouldFlip;
           this.applyAllTransformsWithFlip();
           // Save the autoFlipActive state
-          window.electronAPI.send('auto-flip-state-changed', this.autoFlipActive);
+          window.electronAPI.send(
+            'auto-flip-state-changed',
+            this.autoFlipActive,
+          );
         }
 
         this.autoFlipTimer = null;
@@ -741,7 +775,7 @@ class CameraPiP {
 
   // Check auto flip immediately without delay (for window restore/focus events)
   checkAutoFlipImmediate() {
-    if (this.currentFlip !== 'auto') return;
+    if (this.currentFlip !== 'auto') {return;}
 
     // Check current position
     const positionPercentage = this.getWindowPositionPercentage();
