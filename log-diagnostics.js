@@ -8,6 +8,7 @@ const path = require('path');
 const { app, screen, powerMonitor } = require('electron');
 
 const { logLine } = require('./log-journal');
+const { isNudgeInProgress } = require('./window-repaint');
 
 const BEAT_SILENCE_MS = 25000; // oltre questo silenzio della finestra, lo annota il main
 const BLOCKED_RENDERER_GAP_MS = 3000; // pausa del timer oltre cui il codice della finestra è considerato fermo
@@ -149,6 +150,10 @@ function watchWindow(window) {
 }
 
 function noteWindowMoved(window) {
+  // Le scosse dell'app contro l'immagine ferma non sono spostamenti: con "Auto Refresh" a 5s riempirebbero il diario
+  if (isNudgeInProgress()) {
+    return;
+  }
   noteWindowDisplayChange(window);
   clearTimeout(windowSettleTimer);
   windowSettleTimer = setTimeout(() => {

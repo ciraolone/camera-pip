@@ -94,6 +94,7 @@ class CameraPiP {
         videoElement: this.videoElement,
         onCameraStall: () => this.restartCamera(),
         onPresentationStall: () => window.electronAPI.send('repaint-request'),
+        onAlive: () => window.electronAPI.send('renderer-alive'),
       });
       this.stallWatcher.start();
 

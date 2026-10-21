@@ -1,6 +1,6 @@
 {
   "name": "camera-pip",
-  "version": "1.16.3",
+  "version": "1.17.0",
   "description": "Simple webcam PiP application for Windows",
   "main": "main.js",
   "scripts": {

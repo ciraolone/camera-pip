@@ -30,6 +30,9 @@ Una sentinella sola nel renderer (`video-stall-watcher.js`) confronta quattro vo
 - **La scossa la dà il main**: la finestra è sua. Il renderer si accorge del guasto — è lui che ha i contatori — ma non tocca la finestra, coerente con il resto del progetto dove il main è l'unico proprietario di finestra e settings.
 - **Niente reload come ultimo rimedio**: rifarebbe la webcam da zero con un nero visibile, ed è sproporzionato per un guasto che si risolve con uno spostamento. Se i diari mostrassero blocchi che resistono a entrambi i gradini, se ne riparla con i dati.
 
+- **Il codice fermo lo sorveglia il main (2026-10-21).** La sentinella chiama `onAlive` a ogni giro, il renderer lo gira al main sul canale `renderer-alive`, e `window-repaint.js` controlla ogni 250 ms quanto è passato dall'ultimo: oltre un secondo chiama `requestRepaint`, quindi stessi gradini, stesso freno, un solo posto che scuote. Il segno di vita parte dalla sentinella e non da un timer nuovo perché è già il giro che gira sempre, dal primo avvio. Se il giro del main stesso è arrivato in ritardo (computer in sospensione) l'attesa riparte da zero invece di scattare.
+- **Le scosse non sono spostamenti dell'utente.** `window-repaint.js` espone `isNudgeInProgress()` e `log-diagnostics.js` ignora gli eventi di spostamento che cadono dentro una scossa.
+
 ## Invarianti
 
 - La finestra torna sempre alla posizione esatta da cui è partita: la spinta non deve mai lasciare residui, nemmeno dopo molti blocchi consecutivi.

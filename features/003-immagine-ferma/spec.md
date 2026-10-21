@@ -15,6 +15,12 @@ L'app deve accorgersi da sola quando l'immagine nella finestra smette di aggiorn
 - Q: Serve anche una scossa periodica, indipendente dalla rilevazione? → A: Sì, come opzione spenta di serie. È la rete per i blocchi che la sentinella non può vedere: se a piantarsi è il codice della finestra, quello non chiede niente a nessuno. Si accende se un blocco dovesse sfuggire alla scossa automatica.
 - Q: Perché la sorveglianza non stava già facendo il suo mestiere? → A: Perché viveva dentro il face tracking, quindi era attiva solo a tracking acceso, e conosceva una sola causa: per questo guasto prescriveva il riavvio della webcam, che non c'entra e non risolve. Ora è una sentinella sola, sempre accesa, che distingue i due casi.
 
+### Sessione 2026-10-21
+
+- Q: Che blocco è sfuggito alla scossa automatica? → A: Sul laptop, appena Andrea è passato a un'altra finestra, si è fermato per 16 secondi tutto il codice della finestra, non solo il disegno: la camera continuava a decodificare, ma la sentinella, che vive in quel codice, non poteva accorgersene. Spostando la finestra è ripartito subito.
+- Q: Basta "Auto Refresh"? → A: Copre il caso, ma scuote la finestra a orologio anche quando non serve, e la durata massima del blocco è l'intervallo scelto. Andrea ha scelto un controllo automatico: il processo principale, che in quel blocco resta vivo, riceve dalla finestra un segno di vita quattro volte al secondo e, se per un secondo non arriva niente, dà la stessa scossa della sentinella. "Auto Refresh" resta nel menu come rete in più, ma non dovrebbe più servire.
+- Q: Le scosse riempiono il diario? → A: Non più: gli spostamenti di un pixel fatti dall'app non si annotano come spostamenti della finestra, altrimenti con "Auto Refresh" a 5 secondi il diario si riempiva di una riga ogni 5 secondi.
+
 ## Scenari
 
 ### L'app riconosce quale dei due guasti è
@@ -39,6 +45,16 @@ Quando è il disegno a essersi fermato, l'app fa da sé quello che l'utente fare
 - I tentativi finiscono nel diario, così a freddo si sa quante volte è successo e quale gradino è servito.
 - Passato mezzo minuto di quiete, un blocco nuovo riparte dal gradino leggero.
 
+### La finestra col codice fermo si sblocca da sola
+
+Il blocco che la sentinella non vede, perché si ferma insieme al codice della finestra. Test: TBD.
+
+- La finestra manda al processo principale un segno di vita quattro volte al secondo, sempre, anche a face tracking spento.
+- Se per più di un secondo non ne arriva nessuno, il processo principale dà la stessa scossa in scala della sentinella, con lo stesso freno ai tentativi.
+- Nel diario resta una riga che dice per quanto il codice è rimasto senza segni di vita.
+- Non scatta niente a finestra nascosta o ridotta a icona, mentre la pagina si sta caricando, se la finestra è andata in crash, né prima del primo segno di vita.
+- Al risveglio del computer non scatta un falso allarme: se anche il processo principale è rimasto fermo, l'attesa riparte da zero.
+
 ### La scossa si può anche dare a orologio
 
 Rete di sicurezza opzionale per i blocchi che nessuna rilevazione può cogliere. Test: TBD.
@@ -47,6 +63,7 @@ Rete di sicurezza opzionale per i blocchi che nessuna rilevazione può cogliere.
 - Di serie è Off: la scossa automatica basta, e questa serve solo se qualcosa le sfugge.
 - La scelta sopravvive alla chiusura e riapertura dell'app.
 - Il singolo ritocco non viene annotato nel diario: a quella cadenza seppellirebbe ogni altra riga. Si annota solo quando l'opzione viene accesa o spenta.
+- Nemmeno lo spostamento di un pixel finisce nel diario come "spostata o ridimensionata": vale per tutte le scosse, automatiche o a orologio.
 
 ### La webcam incastrata viene riavviata, come prima
 

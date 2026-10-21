@@ -38,7 +38,12 @@ const {
 } = require('./log-diagnostics');
 const { openJournal, getLogsFolder, logLine } = require('./log-journal');
 const { startShipping } = require('./log-shipper');
-const { requestRepaint, setPeriodicRefresh } = require('./window-repaint');
+const {
+  requestRepaint,
+  setPeriodicRefresh,
+  noteRendererAlive,
+  startCodeStallWatch,
+} = require('./window-repaint');
 
 // Set AppUserModelId early so Windows correctly associates window and taskbar button
 app.setAppUserModelId('com.camerapip.app');
@@ -807,6 +812,7 @@ function setupIPC() {
   // La finestra si è accorta di non essere più disegnata: la scossa la può
   // dare solo il main, che è chi possiede la finestra
   ipcMain.on('repaint-request', () => requestRepaint(mainWindow));
+  ipcMain.on('renderer-alive', () => noteRendererAlive());
 
   ipcMain.handle('read-vendor-file', (event, fileName) => {
     const relativePath = RENDERER_READABLE_FILES[fileName];
@@ -838,6 +844,7 @@ async function initialize() {
     createTray();
     reportFailedSwap();
     setPeriodicRefresh(() => mainWindow, getSettings().windowRefreshSeconds);
+    startCodeStallWatch(() => mainWindow);
   } catch (error) {
     console.error('Initialization error:', error);
     logLine('anomalia', `avvio fallito: ${error}`);

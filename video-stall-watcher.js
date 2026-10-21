@@ -13,7 +13,9 @@
  * sorvegliava solo con il tracking acceso, e per il blocco del disegno
  * prescriveva la cura sbagliata. Gira sempre, dal primo avvio della camera. Il
  * conteggio cumulativo dei fotogrammi mostrati lo legge anche il diario
- * (log-heartbeat.js), che non ne tiene un secondo.
+ * (log-heartbeat.js), che non ne tiene un secondo. A ogni giro chiama anche
+ * onAlive: è il segno di vita che il main aspetta per accorgersi del blocco che
+ * questa sentinella non può vedere, quello del codice della finestra stesso.
  */
 
 const STALL_CHECK_INTERVAL_MS = 250;
@@ -25,8 +27,9 @@ const CAMERA_STALL_TIMEOUT_MS = 4000; // il riavvio dello stream è pesante: si 
 const CAMERA_RESTART_COOLDOWN_MS = 15000; // distanza minima fra due riavvii, per non martellare un dispositivo malmesso
 
 class VideoStallWatcher {
-  constructor({ videoElement, onCameraStall, onPresentationStall }) {
+  constructor({ videoElement, onCameraStall, onPresentationStall, onAlive }) {
     this.videoElement = videoElement;
+    this.onAlive = onAlive;
     this.onCameraStall = onCameraStall;
     this.onPresentationStall = onPresentationStall;
     this.deliveredFrames = 0; // cumulativo da inizio sessione, letto anche dal diario
@@ -43,7 +46,7 @@ class VideoStallWatcher {
   }
 
   start() {
-    if (this.timer) return;
+    if (this.timer) {return;}
     this.lastActivityAt = performance.now();
     this.lastDecodedFrames = this.readDecodedFrames();
     this.lastPresentedFrames = this.deliveredFrames;
@@ -62,6 +65,7 @@ class VideoStallWatcher {
   }
 
   check() {
+    this.onAlive();
     const now = performance.now();
     const decodedFrames = this.readDecodedFrames();
     const decodedInRound = decodedFrames - this.lastDecodedFrames;
@@ -82,7 +86,7 @@ class VideoStallWatcher {
       this.reportBlindRound(now);
       return;
     }
-    if (now - this.lastActivityAt < CAMERA_STALL_TIMEOUT_MS) return;
+    if (now - this.lastActivityAt < CAMERA_STALL_TIMEOUT_MS) {return;}
     this.lastActivityAt = now;
     this.restartStalledCamera(now);
   }
@@ -97,23 +101,35 @@ class VideoStallWatcher {
   reportBlindRound(now) {
     this.lastActivityAt = now;
     this.blindChecks += 1;
-    if (this.blindChecks < PRESENTATION_STALL_CHECKS) return;
+    if (this.blindChecks < PRESENTATION_STALL_CHECKS) {return;}
     this.blindChecks = 0;
-    console.error('Immagine ferma: la finestra non mostra più fotogrammi mentre la camera consegna, chiedo la scossa');
+    console.error(
+      'Immagine ferma: la finestra non mostra più fotogrammi mentre la camera consegna, chiedo la scossa',
+    );
     this.onPresentationStall();
   }
 
   isVideoIdle() {
-    return document.hidden || this.videoElement.readyState < 2 || !this.videoElement.videoWidth;
+    return (
+      document.hidden ||
+      this.videoElement.readyState < 2 ||
+      !this.videoElement.videoWidth
+    );
   }
 
   restartStalledCamera(now) {
     // Il confronto con null darebbe "0", cioè l'orologio dall'avvio della
     // pagina: una camera che muore nei primi quindici secondi non verrebbe
     // riavviata subito ma solo quando l'app è in piedi da abbastanza tempo
-    if (this.lastCameraRestartAt !== null && now - this.lastCameraRestartAt < CAMERA_RESTART_COOLDOWN_MS) return;
+    if (
+      this.lastCameraRestartAt !== null &&
+      now - this.lastCameraRestartAt < CAMERA_RESTART_COOLDOWN_MS
+    )
+      {return;}
     this.lastCameraRestartAt = now;
-    console.error('Immagine ferma: la camera non consegna più fotogrammi, riavvio lo stream');
+    console.error(
+      'Immagine ferma: la camera non consegna più fotogrammi, riavvio lo stream',
+    );
     this.onCameraStall();
   }
 
@@ -121,7 +137,7 @@ class VideoStallWatcher {
   // viene disegnata, quando requestVideoFrameCallback tace: è ciò che separa
   // una camera morta da un'immagine che nessuno ridisegna.
   readDecodedFrames() {
-    if (!this.videoElement.getVideoPlaybackQuality) return 0;
+    if (!this.videoElement.getVideoPlaybackQuality) {return 0;}
     return this.videoElement.getVideoPlaybackQuality().totalVideoFrames;
   }
 }
