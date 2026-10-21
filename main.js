@@ -12,6 +12,7 @@
  * succede alla finestra, agli schermi e al battito del renderer tramite
  * log-diagnostics.js, ci annota ogni accensione e spegnimento del face
  * tracking con chi l'ha deciso, e lo fa spedire al server (log-shipper.js).
+ * Dal menu si legge la versione e si avvia l'aggiornamento (app-updater.js).
  */
 
 const fs = require('fs');
@@ -29,6 +30,7 @@ const {
 } = require('electron');
 const windowStateKeeper = require('electron-window-state');
 
+const { checkForUpdates, reportFailedSwap } = require('./app-updater');
 const {
   startDiagnostics,
   watchWindow,
@@ -244,7 +246,9 @@ function createWindow() {
   // crash pochi secondi dopo ogni riapertura finché l'utente non lo spegneva a
   // mano dal menu. clean-exit e killed sono uscite normali, non crash.
   mainWindow.webContents.on('render-process-gone', (event, details) => {
-    if (details.reason === 'clean-exit' || details.reason === 'killed') {return;}
+    if (details.reason === 'clean-exit' || details.reason === 'killed') {
+      return;
+    }
     console.error(
       `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
     );
@@ -317,18 +321,24 @@ function createWindow() {
 
 // Tray management
 function toggleWindow() {
-  if (!mainWindow) {return;}
+  if (!mainWindow) {
+    return;
+  }
   if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
     mainWindow.hide();
   } else {
-    if (mainWindow.isMinimized()) {mainWindow.restore();}
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
     mainWindow.show();
     mainWindow.focus();
   }
 }
 
 function updateTrayMenu() {
-  if (!tray) {return;}
+  if (!tray) {
+    return;
+  }
   const isVisible = mainWindow?.isVisible() && !mainWindow?.isMinimized();
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -388,7 +398,9 @@ function readTrackingFraming() {
 }
 
 function saveSettings(settings) {
-  if (!store) {return;}
+  if (!store) {
+    return;
+  }
 
   Object.entries(settings).forEach(([key, value]) => {
     if (value !== undefined) {
@@ -552,6 +564,9 @@ function buildContextMenu(settings) {
     { role: 'reload' },
     { role: 'toggleDevTools' },
     { type: 'separator' },
+    { label: 'Check for Updates', click: () => checkForUpdates(mainWindow) },
+    { label: `Version ${app.getVersion()}`, enabled: false },
+    { type: 'separator' },
     { role: 'quit' },
   ];
 
@@ -625,7 +640,9 @@ function getTrackingTuning() {
 // "Attivazione e disattivazione" della feature 001)
 function disableFaceTrackingForManualCommand(command) {
   const settings = getSettings();
-  if (!settings.faceTracking) {return;}
+  if (!settings.faceTracking) {
+    return;
+  }
   logLine('tracking', `spento dal comando manuale ${command}`);
   saveSettings({ faceTracking: false });
   mainWindow?.webContents.send('face-tracking-changed', false);
@@ -719,7 +736,9 @@ function changeZoom(direction) {
 
 // Permission handling
 async function requestCameraPermission() {
-  if (process.platform !== 'darwin') {return true;}
+  if (process.platform !== 'darwin') {
+    return true;
+  }
 
   try {
     return await systemPreferences.askForMediaAccess('camera');
@@ -817,6 +836,7 @@ async function initialize() {
 
     createWindow();
     createTray();
+    reportFailedSwap();
     setPeriodicRefresh(() => mainWindow, getSettings().windowRefreshSeconds);
   } catch (error) {
     console.error('Initialization error:', error);

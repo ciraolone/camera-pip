@@ -44,7 +44,9 @@ function getLogsFolder() {
 // perde quando il processo muore di schianto. A una riga ogni dieci secondi
 // il costo di appendFileSync è invisibile.
 function logLine(category, text) {
-  if (!journalPath || isJournalClosed) {return;}
+  if (!journalPath || isJournalClosed) {
+    return;
+  }
   const line = `${new Date().toISOString()} | ${category} | ${text}${os.EOL}`;
   try {
     fs.appendFileSync(journalPath, line);

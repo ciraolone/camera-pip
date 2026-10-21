@@ -60,7 +60,9 @@ class Heartbeat {
     this.timerTicks += 1;
     this.maxTimerGapMs = Math.max(this.maxTimerGapMs, now - this.lastTickAt);
     this.lastTickAt = now;
-    if (now - this.beatStartedAt < HEARTBEAT_BEAT_MS) {return;}
+    if (now - this.beatStartedAt < HEARTBEAT_BEAT_MS) {
+      return;
+    }
     this.sendBeat(now);
   }
 
@@ -96,12 +98,16 @@ class Heartbeat {
   // contatore che distingue una camera morta da un'immagine che nessuno
   // ridisegna, cioè i due guasti che a occhio sembrano identici.
   readDecodedFrames() {
-    if (!this.videoElement.getVideoPlaybackQuality) {return 0;}
+    if (!this.videoElement.getVideoPlaybackQuality) {
+      return 0;
+    }
     return this.videoElement.getVideoPlaybackQuality().totalVideoFrames;
   }
 
   readHeapMegabytes() {
-    if (!performance.memory) {return 0;}
+    if (!performance.memory) {
+      return 0;
+    }
     return Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
   }
 }

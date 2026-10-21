@@ -37,7 +37,9 @@ class ChasePolicy {
   }
 
   desiredFor(face, lastFaceSeenAt, geometry, now) {
-    if (!face) {return this.neutralReturn(lastFaceSeenAt, now);}
+    if (!face) {
+      return this.neutralReturn(lastFaceSeenAt, now);
+    }
     const view = this.getView();
     const isFlipped = this.getEffectiveFlip() === 'flipped';
     const tuning = this.getTuning();
@@ -123,8 +125,9 @@ class ChasePolicy {
       if (
         errorFromReachableTarget >=
         TRACKING_TUNING.deadZoneStopFraction * shortSide
-      )
-        {return true;}
+      ) {
+        return true;
+      }
       console.log('Face tracking: inseguimento arrivato');
       this.isChasing = false;
       this.persistView(); // fotografa la posizione di riposo appena raggiunta
@@ -137,8 +140,12 @@ class ChasePolicy {
       this.chasePendingSince = null;
       return false;
     }
-    if (this.chasePendingSince === null) {this.chasePendingSince = now;}
-    if (now - this.chasePendingSince < tuning.delaySeconds * 1000) {return false;}
+    if (this.chasePendingSince === null) {
+      this.chasePendingSince = now;
+    }
+    if (now - this.chasePendingSince < tuning.delaySeconds * 1000) {
+      return false;
+    }
     this.chasePendingSince = null;
     this.isChasing = true;
     console.log(
@@ -150,9 +157,12 @@ class ChasePolicy {
   // Il target di zoom sale subito al minimo necessario, ma scende solo con un
   // margine: evita il flip-flop quando il volto balla attorno alla soglia.
   updateZoomTarget(needed) {
-    if (needed > this.zoomTarget) {this.zoomTarget = needed;}
-    if (needed <= this.zoomTarget - TRACKING_TUNING.zoomReleaseMargin)
-      {this.zoomTarget = Math.max(needed, 1);}
+    if (needed > this.zoomTarget) {
+      this.zoomTarget = needed;
+    }
+    if (needed <= this.zoomTarget - TRACKING_TUNING.zoomReleaseMargin) {
+      this.zoomTarget = Math.max(needed, 1);
+    }
     return this.zoomTarget;
   }
 
@@ -163,7 +173,9 @@ class ChasePolicy {
   // se i due divergessero, il rientro disferebbe il lavoro appena fatto.
   maybeReleaseZoom(placement, view, needed) {
     const maxZoom = this.getTuning().maxZoom;
-    if (maxZoom <= 0) {return null;}
+    if (maxZoom <= 0) {
+      return null;
+    }
     // Il target scende solo con margine (anti flip-flop) e mai sotto il necessario
     if (
       needed > this.zoomTarget ||
@@ -187,8 +199,9 @@ class ChasePolicy {
   }
 
   neutralReturn(lastFaceSeenAt, now) {
-    if (now - lastFaceSeenAt < TRACKING_TUNING.faceAbsenceTimeoutMs)
-      {return null;}
+    if (now - lastFaceSeenAt < TRACKING_TUNING.faceAbsenceTimeoutMs) {
+      return null;
+    }
     const view = this.getView();
     // Con "Tracking Zoom" su Off lo zoom appartiene all'utente: si rientra solo con l'offset
     const neutralZoom = this.getTuning().maxZoom > 0 ? 1 : view.zoom;
@@ -197,10 +210,11 @@ class ChasePolicy {
       Math.abs(view.offsetY) < 0.5 &&
       Math.abs(view.zoom - neutralZoom) < 0.005;
     if (!isNeutral) {
-      if (!this.isChasing)
-        {console.log(
+      if (!this.isChasing) {
+        console.log(
           'Face tracking: volto assente da qualche secondo, rientro alla vista neutra',
-        );}
+        );
+      }
       this.isChasing = true;
       this.zoomTarget = 1;
       return { zoom: neutralZoom, offsetX: 0, offsetY: 0, speedBoost: 1 };

@@ -5,8 +5,8 @@
  * CameraPiP per tenere gli occhi centrati in orizzontale a un terzo dall'alto.
  * Qui vivono il ciclo di vita (enable/disable, sospensioni), i due loop
  * (invio frame a cadenza ridotta e movimento a requestAnimationFrame), il
- * filtro anti-tremolio (face-selection.js) e la sospensione automatica al
- * buio comandata dalla sentinella della luce (face-light-watcher.js).
+ * filtro anti-tremolio (face-selection.js) e il rallentamento del
+ * rilevamento quando nessun volto si vede da un po' (face-detection-pace.js).
  * Dell'immagine che si ferma non si occupa più: quella sorveglianza vale
  * anche a tracking spento e vive in video-stall-watcher.js. Le decisioni sono
  * delegate a face-chase-policy.js, il moto alla molla di face-motion.js,
@@ -38,11 +38,6 @@ class FaceTracker {
       onFatalError: () =>
         this.setEnabled(false, 'il rilevatore non è riuscito a partire'),
     });
-    this.lightWatcher = new LightWatcher({
-      videoElement,
-      onDarkness: () => this.suspendForDarkness(),
-      onLight: () => this.resumeFromDarkness(),
-    });
     // Taratura scelta dall'utente: arriva dai settings via setTuning (main → IPC)
     this.tuning = {
       maxZoom: 0,
@@ -53,7 +48,7 @@ class FaceTracker {
       easing: 1,
     };
     this.isEnabled = false;
-    this.isSuspendedForDarkness = false; // rilevamento fermo perché la stanza è buia, tracking comunque acceso
+    this.pace = new DetectionPace();
     this.face = null; // centro-occhi filtrato del volto agganciato, coordinate normalizzate del frame raw
     this.lastFaceSeenAt = 0;
     this.lastVideoTime = -1;
@@ -69,11 +64,8 @@ class FaceTracker {
     return { current: this.movementSpeed, peak: this.peakMovementSpeed };
   }
 
-  getLightState() {
-    return {
-      luma: this.lightWatcher.getLastLuma(),
-      isSuspended: this.isSuspendedForDarkness,
-    };
+  getIsDetectionSlowed() {
+    return this.pace.isSlowed;
   }
 
   setTuning(tuning) {
@@ -97,10 +89,11 @@ class FaceTracker {
   }
 
   startLoops() {
-    if (this.detectionTimer) {return;}
+    if (this.detectionTimer) {
+      return;
+    }
     // Il periodo di grazia senza volto parte da ora, non dall'epoca 0
     this.lastFaceSeenAt = this.lastFrameAt = performance.now();
-    this.lightWatcher.start();
     this.detectionTimer = setInterval(
       () => this.detectTick(),
       TRACKING_TUNING.detectionIntervalMs,
@@ -111,8 +104,7 @@ class FaceTracker {
   }
 
   stopLoops() {
-    this.lightWatcher.stop();
-    this.isSuspendedForDarkness = false;
+    this.pace.reset();
     clearInterval(this.detectionTimer);
     cancelAnimationFrame(this.animationFrameId);
     this.detectionTimer = null;
@@ -126,33 +118,17 @@ class FaceTracker {
 
   detectTick() {
     const video = this.videoElement;
-    if (document.hidden || video.readyState < 2 || !video.videoWidth) {return;}
-    if (this.isSuspendedForDarkness) {return;}
-    if (video.currentTime === this.lastVideoTime) {return;}
+    if (document.hidden || video.readyState < 2 || !video.videoWidth) {
+      return;
+    }
+    if (video.currentTime === this.lastVideoTime) {
+      return;
+    }
+    if (!this.pace.isDue(performance.now(), this.lastFaceSeenAt)) {
+      return;
+    }
     this.lastVideoTime = video.currentTime;
     this.detection.requestDetection(video);
-  }
-
-  // Al buio il rilevamento non ha niente da trovare: si ferma il detector — e
-  // con il worker che muore se ne va anche la memoria del runtime MediaPipe —
-  // mentre l'inquadratura, dichiarato assente il volto, rientra alla vista
-  // neutra con il solito movimento morbido, senza scatti. La camera resta
-  // comunque sorvegliata: quel mestiere è di video-stall-watcher.js, che gira
-  // sempre, anche a tracking spento.
-  suspendForDarkness() {
-    if (!this.isEnabled || this.isSuspendedForDarkness) {return;}
-    console.log('Face tracking: troppo buio, rilevamento sospeso');
-    this.isSuspendedForDarkness = true;
-    this.detection.stop();
-    this.face = null;
-    this.policy.onFaceLost();
-  }
-
-  resumeFromDarkness() {
-    if (!this.isEnabled || !this.isSuspendedForDarkness) {return;}
-    console.log('Face tracking: luce tornata, rilevamento ripreso');
-    this.isSuspendedForDarkness = false;
-    this.detection.start();
   }
 
   handleDetections(detections) {
@@ -183,7 +159,9 @@ class FaceTracker {
     const deltaSeconds = Math.min(now - this.lastFrameAt, 100) / 1000;
     this.lastFrameAt = now;
     const geometry = computeViewGeometry(this.videoElement);
-    if (!geometry) {return;}
+    if (!geometry) {
+      return;
+    }
     const desired = this.policy.desiredFor(
       this.face,
       this.lastFaceSeenAt,
@@ -230,7 +208,9 @@ class FaceTracker {
     const speed = deltaSeconds > 0 ? distance / deltaSeconds : 0;
     // Il picco si azzera all'inizio di una corsa nuova, non alla fine di
     // quella vecchia: così dopo l'arrivo resta leggibile nel pannello info.
-    if (this.movementSpeed === 0 && speed > 0) {this.peakMovementSpeed = 0;}
+    if (this.movementSpeed === 0 && speed > 0) {
+      this.peakMovementSpeed = 0;
+    }
     this.movementSpeed = speed;
     this.peakMovementSpeed = Math.max(this.peakMovementSpeed, speed);
   }

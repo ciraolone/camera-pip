@@ -12,12 +12,8 @@ const TRACKING_TUNING = {
   detectionFrameWidth: 256, // larghezza del frame ridotto passato al detector (px)
   detectionFailuresBeforeRestart: 5, // errori consecutivi prima di ricreare il detector
   detectorRecycleIntervalMs: 10 * 60 * 1000, // riciclo preventivo del worker di detection: il runtime MediaPipe accumula risorse a ogni frame anche senza errori (leak noto); si termina e ricrea il worker intero, l'unico riciclo che libera davvero la memoria
-  lightCheckIntervalMs: 1000, // cadenza della misura di luminosità ambientale: la luce della stanza cambia piano, non serve di più
-  lightSampleWidth: 32, // larghezza del fotogramma ridotto su cui si misura la luminosità (px)
-  darkSuspendLuma: 35, // luminosità media (0-255) sotto cui la stanza è considerata buia e il rilevamento si sospende
-  lightResumeLuma: 55, // luminosità media sopra cui la luce è tornata. Più alta della soglia di buio apposta (isteresi): con una soglia sola il tracking si accenderebbe e spegnerebbe di continuo stando al confine
-  darkConfirmMs: 5000, // buio ininterrotto per tanto così prima di sospendere. Più lungo dell'attesa di volto assente, così l'inquadratura è già rientrata alla vista neutra quando il rilevamento si ferma
-  lightConfirmMs: 2000, // luce ininterrotta per tanto così prima di riprendere: più breve, il rientro deve essere pronto
+  faceIdleAfterMs: 30000, // senza volto da tanto così il rilevamento rallenta: la stanza è buia o l'utente si è alzato
+  faceIdleDetectionIntervalMs: 1000, // cadenza del rilevamento rallentato: un volto che ricompare si ritrova entro un secondo
   deadZoneStopFraction: 0.02, // errore (frazione del lato corto della finestra) sotto cui l'inseguimento si ferma
   faceAbsenceTimeoutMs: 3000, // attesa senza volto prima del rientro alla vista neutra
   faceStickinessRatio: 0.8, // il volto agganciato resta scelto finché è almeno l'80% del più grande
@@ -45,7 +41,13 @@ const TRACKING_EASING_RATIOS = { 1: 0, 2: 0.3, 3: 0.6 };
 // Setting "Tracking Tolerance" (1-5) → frazione del lato corto della finestra
 // oltre cui il volto è considerato fuori posto. Il livello 3 è la tolleranza
 // della prima consegna.
-const TRACKING_TOLERANCE_FRACTIONS = { 1: 0.03, 2: 0.05, 3: 0.07, 4: 0.1, 5: 0.14 };
+const TRACKING_TOLERANCE_FRACTIONS = {
+  1: 0.03,
+  2: 0.05,
+  3: 0.07,
+  4: 0.1,
+  5: 0.14,
+};
 
 // Setting "Tracking Framing" (1-6) → dove devono stare gli occhi, in frazioni
 // della finestra (0,0 = angolo in alto a sinistra). Ogni livello porta due
@@ -62,12 +64,54 @@ const TRACKING_TOLERANCE_FRACTIONS = { 1: 0.03, 2: 0.05, 3: 0.07, 4: 0.1, 5: 0.1
 // in orizzontale il bersaglio è il centro esatto, quindi ogni punto
 // percentuale di scarto laterale si paga più caro.
 const TRACKING_FRAMING_ZONES = {
-  1: { targetX: 0.5, targetY: 1 / 3, left: 0.5, right: 0.5, top: 1 / 3, bottom: 1 / 3 },
-  2: { targetX: 0.5, targetY: 1 / 3, left: 0.425, right: 0.575, top: 0.17, bottom: 0.42 },
-  3: { targetX: 0.5, targetY: 1 / 3, left: 0.35, right: 0.65, top: 0, bottom: 0.5 },
-  4: { targetX: 0.5, targetY: 1 / 3, left: 0.3, right: 0.7, top: 0, bottom: 0.58 },
-  5: { targetX: 0.5, targetY: 1 / 3, left: 0.25, right: 0.75, top: 0, bottom: 0.65 },
-  6: { targetX: 0.5, targetY: 1 / 3, left: 0.175, right: 0.825, top: 0, bottom: 0.8 },
+  1: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.5,
+    right: 0.5,
+    top: 1 / 3,
+    bottom: 1 / 3,
+  },
+  2: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.425,
+    right: 0.575,
+    top: 0.17,
+    bottom: 0.42,
+  },
+  3: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.35,
+    right: 0.65,
+    top: 0,
+    bottom: 0.5,
+  },
+  4: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.3,
+    right: 0.7,
+    top: 0,
+    bottom: 0.58,
+  },
+  5: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.25,
+    right: 0.75,
+    top: 0,
+    bottom: 0.65,
+  },
+  6: {
+    targetX: 0.5,
+    targetY: 1 / 3,
+    left: 0.175,
+    right: 0.825,
+    top: 0,
+    bottom: 0.8,
+  },
 };
 
 const DEFAULT_TRACKING_FRAMING = 3;

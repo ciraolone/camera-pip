@@ -30,7 +30,9 @@ function startDiagnostics(windowGetter, trackingWantedGetter) {
   watchDisplays();
   watchPower();
   app.on('child-process-gone', (event, details) => {
-    if (details.reason === 'clean-exit') {return;} // chiusura normale dell'app
+    if (details.reason === 'clean-exit') {
+      return;
+    } // chiusura normale dell'app
     logLine(
       'anomalia',
       `processo ${details.type} terminato: ${details.reason}${details.exitCode !== undefined ? ` (codice ${details.exitCode})` : ''}`,
@@ -97,7 +99,9 @@ function watchPower() {
 }
 
 function describeWindow(window) {
-  if (!window || window.isDestroyed()) {return 'finestra assente';}
+  if (!window || window.isDestroyed()) {
+    return 'finestra assente';
+  }
   const bounds = window.getBounds();
   const display = screen.getDisplayMatching(bounds);
   return `finestra ${bounds.width}x${bounds.height}@(${bounds.x},${bounds.y}) schermo #${display.id} visibile=${window.isVisible() ? 'sì' : 'no'} minimizzata=${window.isMinimized() ? 'sì' : 'no'}`;
@@ -128,7 +132,7 @@ function watchWindow(window) {
     logLine('finestra', 'la finestra ha ripreso a rispondere'),
   );
   // I console.log/error già sparsi nell'app (riavvio camera, riciclo del
-  // detector, pausa al buio) finiscono così nel diario senza toccarli: un solo
+  // detector, rallentamento senza volto) finiscono così nel diario senza toccarli: un solo
   // modo di annotare, quello che esiste già
   // File e riga servono per le eccezioni non gestite, che arrivano da qui
   window.webContents.on(
@@ -148,17 +152,20 @@ function noteWindowMoved(window) {
   noteWindowDisplayChange(window);
   clearTimeout(windowSettleTimer);
   windowSettleTimer = setTimeout(() => {
-    if (!window.isDestroyed())
-      {logLine(
+    if (!window.isDestroyed()) {
+      logLine(
         'finestra',
         `spostata o ridimensionata — ${describeWindow(window)}`,
-      );}
+      );
+    }
   }, WINDOW_SETTLE_MS);
 }
 
 function noteWindowDisplayChange(window) {
   const display = screen.getDisplayMatching(window.getBounds());
-  if (display.id === lastWindowDisplayId) {return;}
+  if (display.id === lastWindowDisplayId) {
+    return;
+  }
   lastWindowDisplayId = display.id;
   logLine('finestra', `ora sta su ${describeDisplay(display)}`);
 }
@@ -179,7 +186,9 @@ function noteTrackingMismatch(beat) {
     wanted === beat.isTrackingEnabled
       ? null
       : `face tracking ${wanted ? 'acceso' : 'spento'} nel menu ma ${beat.isTrackingEnabled ? 'acceso' : 'spento'} nella finestra`;
-  if (mismatch === currentTrackingMismatch) {return;}
+  if (mismatch === currentTrackingMismatch) {
+    return;
+  }
   logLine('anomalia', mismatch ?? `rientrata: ${currentTrackingMismatch}`);
   currentTrackingMismatch = mismatch;
 }
@@ -189,7 +198,9 @@ function noteTrackingMismatch(beat) {
 // quanto è durato. È l'inizio e la fine che servono per incrociarli con gli
 // altri eventi del diario.
 function reportAnomaly(anomaly) {
-  if (anomaly === currentAnomaly) {return;}
+  if (anomaly === currentAnomaly) {
+    return;
+  }
   if (anomaly) {
     logLine('anomalia', anomaly);
     currentAnomaly = anomaly;
@@ -233,20 +244,27 @@ function findBeatAnomaly(beat, window) {
     window.isDestroyed() ||
     !window.isVisible() ||
     window.isMinimized()
-  )
-    {return null;}
+  ) {
+    return null;
+  }
   if (beat.paintedFrames === 0 && beat.decodedFrames > 0) {
     return 'la finestra non viene più disegnata mentre la camera continua a consegnare: sospetto compositing (schermo esterno, GPU, occlusione)';
   }
-  if (beat.paintedFrames === 0) {return 'la finestra non viene più disegnata';}
-  if (beat.decodedFrames === 0) {return 'la camera non consegna più fotogrammi';}
+  if (beat.paintedFrames === 0) {
+    return 'la finestra non viene più disegnata';
+  }
+  if (beat.decodedFrames === 0) {
+    return 'la camera non consegna più fotogrammi';
+  }
   return null;
 }
 
 // Se la finestra tace, a parlare resta il main: il silenzio va annotato da
 // qui, altrimenti nel diario resterebbe solo un buco senza spiegazione.
 function checkRendererSilence() {
-  if (Date.now() - lastBeatAt < BEAT_SILENCE_MS) {return;}
+  if (Date.now() - lastBeatAt < BEAT_SILENCE_MS) {
+    return;
+  }
   lastBeatAt = Date.now();
   logLine(
     'anomalia',

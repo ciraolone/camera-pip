@@ -1,12 +1,13 @@
 {
   "name": "camera-pip",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "Simple webcam PiP application for Windows",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "build": "node build.js"
+    "build": "node build.js",
+    "publish": "node publish.js"
   },
   "keywords": [
     "electron",

@@ -44,14 +44,22 @@ class FaceDetectionClient {
   }
 
   describeWorkerState() {
-    if (this.isStarting) {return 'in-avvio';}
-    if (!this.worker) {return 'fermo';}
-    if (!this.isReady) {return 'in-preparazione';}
+    if (this.isStarting) {
+      return 'in-avvio';
+    }
+    if (!this.worker) {
+      return 'fermo';
+    }
+    if (!this.isReady) {
+      return 'in-preparazione';
+    }
     return this.isBusyDetecting ? 'occupato' : 'pronto';
   }
 
   async start() {
-    if (this.worker || this.isStarting) {return;}
+    if (this.worker || this.isStarting) {
+      return;
+    }
     this.isStarting = true;
     try {
       const readFile = (fileName) =>
@@ -71,7 +79,9 @@ class FaceDetectionClient {
       ]);
       // stop() azzera isStarting anche ad avvio in corso: se è successo durante
       // le letture qui sopra, l'avvio è annullato e il worker non va creato
-      if (!this.isStarting) {return;}
+      if (!this.isStarting) {
+        return;
+      }
       this.workerUrl = URL.createObjectURL(
         new Blob([workerSource], { type: 'text/javascript' }),
       );
@@ -104,8 +114,12 @@ class FaceDetectionClient {
   }
 
   stop() {
-    if (this.worker) {this.worker.terminate();}
-    if (this.workerUrl) {URL.revokeObjectURL(this.workerUrl);}
+    if (this.worker) {
+      this.worker.terminate();
+    }
+    if (this.workerUrl) {
+      URL.revokeObjectURL(this.workerUrl);
+    }
     this.worker = null;
     this.workerUrl = null;
     this.isReady = false;
@@ -123,7 +137,9 @@ class FaceDetectionClient {
   }
 
   requestDetection(video) {
-    if (!this.worker || !this.isReady) {return;}
+    if (!this.worker || !this.isReady) {
+      return;
+    }
     if (this.isBusyDetecting) {
       this.diaryCounters.skippedBusy += 1;
       return;
@@ -189,7 +205,9 @@ class FaceDetectionClient {
       this.detectionFailures = 0;
       this.lastResultAt = performance.now();
       this.diaryCounters.results += 1;
-      if (message.detections.length > 0) {this.diaryCounters.withFace += 1;}
+      if (message.detections.length > 0) {
+        this.diaryCounters.withFace += 1;
+      }
       this.onDetections(message.detections);
       return;
     }
@@ -206,8 +224,11 @@ class FaceDetectionClient {
     this.detectionFailures += 1;
     this.diaryCounters.errors += 1;
     this.diaryCounters.lastError = String(reason);
-    if (this.detectionFailures < TRACKING_TUNING.detectionFailuresBeforeRestart)
-      {return;}
+    if (
+      this.detectionFailures < TRACKING_TUNING.detectionFailuresBeforeRestart
+    ) {
+      return;
+    }
     console.error(
       'Face tracking: detection in errore, riciclo il worker',
       reason,

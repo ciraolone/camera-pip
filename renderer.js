@@ -516,7 +516,9 @@ class CameraPiP {
   // (resize, focus, timer) sia applyZoom/applyOffset a ogni frame del tracking:
   // è quest'ultima chiamata che rende la riga della velocità leggibile dal vivo.
   updateWebcamInfo() {
-    if (!this.showWebcamInfo) {return;}
+    if (!this.showWebcamInfo) {
+      return;
+    }
 
     const videoWidth = this.videoElement?.videoWidth;
     const videoHeight = this.videoElement?.videoHeight;
@@ -542,12 +544,10 @@ class CameraPiP {
       );
     }
 
-    const light = this.faceTracker?.getLightState();
-    if (light) {
-      const luma = light.luma === null ? '--' : Math.round(light.luma);
+    if (this.faceTracker) {
       this.writeInfoLine(
-        'light-info',
-        `Luce: ${luma}${light.isSuspended ? ' (tracking in pausa)' : ''}`,
+        'detection-pace-info',
+        `Ricerca volto: ${this.faceTracker.getIsDetectionSlowed() ? 'rallentata (nessun volto)' : 'piena'}`,
       );
     }
 
@@ -572,7 +572,9 @@ class CameraPiP {
 
   writeInfoLine(elementId, text) {
     const element = document.getElementById(elementId);
-    if (element) {element.textContent = text;}
+    if (element) {
+      element.textContent = text;
+    }
   }
 
   getStreamFps() {
@@ -583,7 +585,9 @@ class CameraPiP {
 
   // Apply zoom to video element
   applyZoom(zoomLevel) {
-    if (!this.videoElement) {return;}
+    if (!this.videoElement) {
+      return;
+    }
 
     // Calculate minimum zoom to fill window
     this.calculateMinZoom();
@@ -604,7 +608,9 @@ class CameraPiP {
 
   // Apply offset to video element
   applyOffset(offsetX, offsetY) {
-    if (!this.videoElement) {return;}
+    if (!this.videoElement) {
+      return;
+    }
 
     // Update current offset
     this.currentOffsetX = offsetX;
@@ -619,7 +625,9 @@ class CameraPiP {
 
   // Apply all transforms considering flip
   applyAllTransformsWithFlip() {
-    if (!this.videoElement) {return;}
+    if (!this.videoElement) {
+      return;
+    }
 
     const baseTransforms = this.getCurrentTransforms();
     const effectiveFlip = this.getEffectiveFlip();
@@ -637,7 +645,9 @@ class CameraPiP {
 
   // Apply flip to video element
   applyFlip(flip) {
-    if (!this.videoElement) {return;}
+    if (!this.videoElement) {
+      return;
+    }
 
     // Save previous flip mode to detect actual changes
     const previousFlip = this.currentFlip;
@@ -719,7 +729,9 @@ class CameraPiP {
 
   // Check auto flip with delayed execution and timer reset
   checkAutoFlip() {
-    if (this.currentFlip !== 'auto') {return;}
+    if (this.currentFlip !== 'auto') {
+      return;
+    }
 
     // If timer is already running, don't start a new check
     if (this.autoFlipTimer) {
@@ -775,7 +787,9 @@ class CameraPiP {
 
   // Check auto flip immediately without delay (for window restore/focus events)
   checkAutoFlipImmediate() {
-    if (this.currentFlip !== 'auto') {return;}
+    if (this.currentFlip !== 'auto') {
+      return;
+    }
 
     // Check current position
     const positionPercentage = this.getWindowPositionPercentage();

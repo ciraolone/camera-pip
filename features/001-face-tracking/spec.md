@@ -28,8 +28,13 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 
 ### Sessione 2026-09-14
 
-- Q: Al buio il tracking può spegnersi da solo e riaccendersi quando la luce torna? → A: Sì. La luminosità media del fotogramma si misura una volta al secondo; sotto la soglia di buio per cinque secondi il rilevamento si sospende — il motore di rilevamento viene proprio terminato, quindi CPU e memoria rientrano — e sopra la soglia di rientro per due secondi riparte. Due soglie diverse e una conferma nel tempo, per non far lampeggiare il tracking stando al confine. L'interruttore del menu non si tocca: la pausa è automatica e non cambia le impostazioni.
+- Q: Al buio il tracking può spegnersi da solo e riaccendersi quando la luce torna? → (Superata il 2026-10-21, vedi sotto.) A: Sì. La luminosità media del fotogramma si misura una volta al secondo; sotto la soglia di buio per cinque secondi il rilevamento si sospende — il motore di rilevamento viene proprio terminato, quindi CPU e memoria rientrano — e sopra la soglia di rientro per due secondi riparte. Due soglie diverse e una conferma nel tempo, per non far lampeggiare il tracking stando al confine. L'interruttore del menu non si tocca: la pausa è automatica e non cambia le impostazioni.
 - Q: Le soglie si regolano dal menu? → A: No, per ora sono fisse. Il pannello info della webcam mostra la luminosità misurata, così si verifica dal vivo se i valori vanno bene per la stanza e semmai si ritarano nel codice; un interruttore a menu è parcheggiato nel backlog.
+
+### Sessione 2026-10-21
+
+- Q: Perché il tracking si fermava da solo pochi secondi dopo averlo acceso? → A: La pausa al buio guardava la luminosità media di tutta l'immagine: con uno sfondo nero la media era 22 (soglia 35) anche con il volto ben visibile e trovato a ogni rilevamento, e per ripartire serviva una media sopra 55 che con quello sfondo non arriva mai.
+- Q: Ritarare le soglie? → A: No: qualunque soglia sulla media sbaglia con uno sfondo scuro. Decisione di Andrea: la pausa si decide sul volto. Senza volto per 30 secondi la ricerca rallenta a una volta al secondo, e riparte piena appena un volto ricompare. La misura della luce e la riga "Luce" del pannello spariscono.
 
 ## Scenari
 
@@ -80,17 +85,15 @@ Quando nessun volto è rilevato per qualche secondo, l'inquadratura torna da sol
 - Superata la soglia di assenza, l'inquadratura rientra dolcemente verso la vista neutra, con la stessa morbidezza di ogni altro movimento del tracking.
 - Quando un volto ricompare — anche a metà del rientro — l'inseguimento riprende normalmente.
 
-### Al buio il rilevamento si mette in pausa da solo
+### Senza volto il rilevamento rallenta da solo
 
-Quando la stanza diventa buia il rilevamento non ha più niente da trovare: dopo qualche secondo si ferma da solo, e riparte da solo appena la luce torna. Il tracking resta acceso: quella che si sospende è solo la ricerca del volto. Test: TBD.
+Quando per un po' non si vede nessun volto — stanza buia, utente che si è alzato — il rilevamento non ha niente da inseguire: rallenta da solo, e torna alla cadenza piena appena un volto ricompare. Il tracking resta acceso: cambia solo quanto spesso cerca. Test: TBD.
 
-- Se la luminosità dell'immagine resta sotto la soglia di buio per qualche secondo, il rilevamento si ferma: niente più ricerca del volto, e niente CPU né memoria spese dal motore di rilevamento finché dura il buio.
-- Il passaggio in pausa non produce scatti: il volto risulta assente e l'inquadratura rientra alla vista neutra con il solito movimento morbido.
-- La spunta "Enabled" nel menu resta attiva: la pausa è automatica e temporanea, non è uno spegnimento, e non va riattivata a mano.
-- Quando la luce torna e resta sopra la soglia di rientro per un paio di secondi, il rilevamento riparte da solo e l'inseguimento riprende normalmente.
-- Le due soglie sono diverse (quella di rientro più alta di quella di uscita) e ogni passaggio va confermato nel tempo: un'ombra, una mano davanti all'obiettivo o una luminosità che balla sul confine non fanno accendere e spegnere il tracking di continuo.
-- Con il pannello info della webcam attivo si leggono la luminosità misurata e, quando è il caso, l'avviso che il tracking è in pausa: serve a capire se le soglie sono tarate bene per la propria stanza.
-- Anche durante la pausa la sorveglianza sullo stallo della camera resta attiva: una camera che si incastra al buio viene comunque riavviata.
+- Se per 30 secondi non si vede nessun volto, la ricerca passa da circa sette volte al secondo a una volta al secondo: il consumo scende di circa sette volte.
+- Appena un volto ricompare viene ritrovato entro un secondo e l'inseguimento riprende normalmente, a cadenza piena.
+- Il colore dello sfondo e la luce della stanza non contano: con uno sfondo nero e il volto ben visibile il tracking lavora normalmente.
+- La spunta "Enabled" nel menu resta attiva: il rallentamento è automatico, non è uno spegnimento, e non va riattivato a mano.
+- Con il pannello info della webcam attivo la riga "Ricerca volto" dice se la ricerca è piena o rallentata.
 
 ### L'inquadratura non esce mai dai bordi dell'immagine
 
@@ -113,7 +116,7 @@ Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può a
 
 - Il tracking non cambia ciò che vedono gli altri in call: agisce solo sull'immagine dentro la finestra PiP. Con tracking attivo la finestrella non è più un controllo fedele dell'inquadratura reale — scelta consapevole, si spegne quando serve verificarla.
 - Nessun controllo fisico della webcam (motori PTZ, zoom ottico): si lavora solo sull'immagine già ricevuta.
-- Nessun riconoscimento dell'identità: l'app rileva *che* c'è un volto e dove, non *di chi* è.
+- Nessun riconoscimento dell'identità: l'app rileva _che_ c'è un volto e dove, non _di chi_ è.
 - Nessun inseguimento di più volti contemporaneamente o inquadratura "di gruppo".
 - Nessun invio di immagini o dati fuori dal computer: il rilevamento gira interamente in locale.
 
