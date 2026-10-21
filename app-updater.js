@@ -11,7 +11,6 @@ const { app, dialog, net } = require('electron');
 // original-fs e non fs: il fs di Electron tratta i file .asar come archivi da aprire, non come file da leggere o spostare
 const fs = require('original-fs');
 
-
 const { logLine } = require('./log-journal');
 
 const RELEASES_URL = 'https://home-server.tail6fec67.ts.net/ota/camera-pip/';
@@ -24,10 +23,11 @@ async function checkForUpdates(window) {
     `controllo richiesto dal menu, installata ${app.getVersion()}`,
   );
   try {
-    if (!app.isPackaged)
-      {throw new Error(
+    if (!app.isPackaged) {
+      throw new Error(
         'updates work only in the installed app, not when started from the source folder',
-      );}
+      );
+    }
     const latest = await fetchLatest();
     if (!isNewerVersion(latest.version, app.getVersion())) {
       logLine(
@@ -74,8 +74,9 @@ async function fetchLatest() {
       `The update server cannot be reached: the laptop must be on the home network (Tailscale). (${error.message})`,
     );
   }
-  if (!response.ok)
-    {throw new Error(`The update server answered ${response.status}.`);}
+  if (!response.ok) {
+    throw new Error(`The update server answered ${response.status}.`);
+  }
   return response.json();
 }
 
@@ -83,8 +84,9 @@ function isNewerVersion(candidate, installed) {
   const candidateParts = candidate.split('.').map(Number);
   const installedParts = installed.split('.').map(Number);
   for (let index = 0; index < 3; index += 1) {
-    if (candidateParts[index] !== installedParts[index])
-      {return candidateParts[index] > installedParts[index];}
+    if (candidateParts[index] !== installedParts[index]) {
+      return candidateParts[index] > installedParts[index];
+    }
   }
   return false;
 }
@@ -119,14 +121,16 @@ async function installUpdate(latest) {
     cache: 'no-store',
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
-  if (!response.ok)
-    {throw new Error(`Download failed: the server answered ${response.status}.`);}
+  if (!response.ok) {
+    throw new Error(`Download failed: the server answered ${response.status}.`);
+  }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const digest = crypto.createHash('sha256').update(packageBytes).digest('hex');
-  if (digest !== latest.sha256)
-    {throw new Error(
+  if (digest !== latest.sha256) {
+    throw new Error(
       'The downloaded update is damaged (checksum mismatch). Nothing was changed.',
-    );}
+    );
+  }
   const nextPath = pendingPackagePath();
   await fs.promises.writeFile(nextPath, packageBytes);
   logLine(
@@ -171,7 +175,9 @@ function launchSwapScript(nextPath) {
 
 function reportFailedSwap() {
   const nextPath = pendingPackagePath();
-  if (!app.isPackaged || !fs.existsSync(nextPath)) {return;}
+  if (!app.isPackaged || !fs.existsSync(nextPath)) {
+    return;
+  }
   logLine(
     'anomalia',
     `aggiornamento non installato: il pacchetto nuovo è rimasto in ${nextPath}, gira ancora la ${app.getVersion()}`,
