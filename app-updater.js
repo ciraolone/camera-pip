@@ -158,9 +158,15 @@ function launchSwapScript(nextPath) {
   ].join('\r\n');
   const scriptPath = path.join(os.tmpdir(), 'camera-pip-update.ps1');
   fs.writeFileSync(scriptPath, script);
+  // Lo script parte attraverso `cmd /c start` e non con uno spawn diretto: lanciato direttamente da Electron, PowerShell viene chiuso insieme all'app e lo scambio non avviene mai (riprodotto sul PC fisso il 2026-10-21, ed è il guasto visto sul laptop con la 1.16.0). Passando da start il processo nasce staccato e sopravvive all'uscita.
   spawn(
-    'powershell.exe',
+    'cmd.exe',
     [
+      '/c',
+      'start',
+      '""',
+      '/b',
+      'powershell.exe',
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
