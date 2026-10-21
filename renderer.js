@@ -24,6 +24,8 @@ class CameraPiP {
     this.currentFlip = 'normal';
     this.lastKeyTime = 0;
     this.faceTracker = null;
+    this.stallWatcher = null;
+    this.heartbeat = null;
 
     // Auto flip state management
     this.autoFlipActive = false; // Tracks current flip state in auto mode
@@ -73,7 +75,6 @@ class CameraPiP {
           offsetX: this.currentOffsetX,
           offsetY: this.currentOffsetY,
         }),
-        restartCamera: () => this.restartCamera(),
       });
       this.faceTracker.setTuning({
         maxZoom: settings.faceTrackingMaxZoom,
@@ -85,6 +86,25 @@ class CameraPiP {
       });
       this.framingOverlay.setFraming(settings.faceTrackingFraming);
       this.faceTracker.setEnabled(settings.faceTracking);
+
+      // Sorveglia l'immagine sempre, anche a tracking spento: i due guasti
+      // che la fermano non hanno niente a che vedere con il face tracking
+      this.stallWatcher = new VideoStallWatcher({
+        videoElement: this.videoElement,
+        onCameraStall: () => this.restartCamera(),
+        onPresentationStall: () => window.electronAPI.send('repaint-request'),
+      });
+      this.stallWatcher.start();
+
+      // Parte prima di startCamera: così il diario registra anche un avvio
+      // della camera che fallisce o che ci mette troppo
+      this.heartbeat = new Heartbeat({
+        videoElement: this.videoElement,
+        getVideoTrack: () => this.currentStream?.getVideoTracks()[0],
+        getDeliveredFrames: () => this.stallWatcher.getDeliveredFrames(),
+        describeTracking: () => this.describeTrackingState(),
+      });
+      this.heartbeat.start();
 
       await this.startCamera(settings.selectedDeviceId);
     } catch (error) {
@@ -508,9 +528,24 @@ class CameraPiP {
       this.writeInfoLine('speed-info', `Speed: ${Math.round(speed.current)} px/s (max ${Math.round(speed.peak)})`);
     }
 
+    const light = this.faceTracker?.getLightState();
+    if (light) {
+      const luma = light.luma === null ? '--' : Math.round(light.luma);
+      this.writeInfoLine('light-info', `Luce: ${luma}${light.isSuspended ? ' (tracking in pausa)' : ''}`);
+    }
+
     const windowInfo = this.getWindowInfo();
     this.writeInfoLine('window-size-info', `Finestra: ${windowInfo.windowSize.width}x${windowInfo.windowSize.height}`);
     this.writeInfoLine('window-distance-info', `Distance: L${windowInfo.distances.left} T${windowInfo.distances.top} R${windowInfo.distances.right} B${windowInfo.distances.bottom}`);
+  }
+
+  // Riga compatta per il diario: serve a correlare un blocco con quello che
+  // il face tracking stava facendo in quel momento.
+  describeTrackingState() {
+    if (!this.faceTracker?.isEnabled) return 'spento';
+    const light = this.faceTracker.getLightState();
+    const luma = light.luma === null ? '--' : Math.round(light.luma);
+    return `acceso luce=${luma}${light.isSuspended ? ' in-pausa-per-buio' : ''}`;
   }
 
   writeInfoLine(elementId, text) {

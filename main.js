@@ -7,7 +7,10 @@
  * spengono il face tracking; il renderer persiste i valori del tracking con
  * i canali set-level/set-position, che salvano senza rimandare l'evento.
  * Serve anche al renderer, via read-vendor-file, gli asset di
- * vendor/mediapipe/ e il worker del face tracking (whitelist rigida).
+ * vendor/mediapipe/ e il worker del face tracking (whitelist rigida). Apre
+ * infine il diario di diagnostica (log-journal.js) e gli passa quello che
+ * succede alla finestra, agli schermi e al battito del renderer tramite
+ * log-diagnostics.js.
  */
 
 const {
@@ -18,10 +21,14 @@ const {
   nativeImage,
   ipcMain,
   systemPreferences,
+  shell,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const windowStateKeeper = require("electron-window-state");
+const { openJournal, getLogsFolder, logLine } = require("./log-journal");
+const { startDiagnostics, watchWindow, handleRendererBeat } = require("./log-diagnostics");
+const { requestRepaint, setPeriodicRefresh } = require("./window-repaint");
 
 // Set AppUserModelId early so Windows correctly associates window and taskbar button
 app.setAppUserModelId("com.camerapip.app");
@@ -63,6 +70,17 @@ const FPS_OPTIONS = [
   { label: "29.97 FPS", value: 29.97 },
   { label: "25 FPS", value: 25 },
   { label: "24 FPS", value: 24 },
+];
+
+// Ritocco periodico della finestra: rete di sicurezza opzionale contro i
+// blocchi del disegno che la sentinella non riesce a vedere. Spento di serie,
+// perché la scossa automatica scatta già da sola quando serve.
+const WINDOW_REFRESH_OPTIONS = [
+  { label: "Off", value: 0 },
+  { label: "Every 5s", value: 5 },
+  { label: "Every 15s", value: 15 },
+  { label: "Every 30s", value: 30 },
+  { label: "Every 60s", value: 60 },
 ];
 
 const FLIP_OPTIONS = [
@@ -194,6 +212,7 @@ function createWindow() {
 
   Menu.setApplicationMenu(null);
   windowState.manage(mainWindow);
+  watchWindow(mainWindow);
   mainWindow.loadFile("index.html");
 
   mainWindow.webContents.on("context-menu", (e, params) => {
@@ -213,6 +232,7 @@ function createWindow() {
     console.error(
       `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`
     );
+    logLine("anomalia", `renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`);
     if (getSettings().faceTracking) {
       saveSettings({ faceTracking: false });
     }
@@ -320,6 +340,7 @@ function getSettings() {
     selectedDeviceId: store?.get("selectedDeviceId") || null,
     showWebcamInfo: store?.get("showWebcamInfo", false) || false,
     alwaysOnTop: store?.get("alwaysOnTop", false) || false,
+    windowRefreshSeconds: store ? store.get("windowRefreshSeconds", 0) : 0,
     zoomLevel: store?.get("zoomLevel", 1) || 1,
     offsetX: store?.get("offsetX", 0) || 0,
     offsetY: store?.get("offsetY", 0) || 0,
@@ -410,6 +431,7 @@ function buildWindowSubmenu(settings) {
     { label: "Always on Top", type: "checkbox", checked: settings.alwaysOnTop, click: () => toggleAlwaysOnTop() },
     { label: "Hide from Taskbar", type: "checkbox", checked: settings.skipTaskbar, click: () => toggleSkipTaskbar() },
     { label: "Info webcam", type: "checkbox", checked: settings.showWebcamInfo, click: () => toggleWebcamInfo() },
+    { label: "Auto Refresh", submenu: buildRadioSubmenu(WINDOW_REFRESH_OPTIONS, settings.windowRefreshSeconds, changeWindowRefresh) },
   ];
 }
 
@@ -423,6 +445,7 @@ function buildContextMenu(settings) {
     { label: "Window", submenu: buildWindowSubmenu(settings) },
     { type: "separator" },
     { label: "Reset View", click: () => resetView() },
+    { label: "Open Logs Folder", click: () => shell.openPath(getLogsFolder()) },
     { role: "reload" },
     { role: "toggleDevTools" },
     { type: "separator" },
@@ -505,6 +528,11 @@ function toggleWebcamInfo() {
   saveSettings({ showWebcamInfo: newValue });
   notifySettingsChanged();
   mainWindow?.webContents.send("webcam-info-toggled", newValue);
+}
+
+function changeWindowRefresh(seconds) {
+  saveSettings({ windowRefreshSeconds: seconds });
+  setPeriodicRefresh(() => mainWindow, seconds);
 }
 
 function toggleAlwaysOnTop() {
@@ -646,6 +674,12 @@ function setupIPC() {
 
   // I file whitelistati (asset MediaPipe + worker del tracking) si servono via
   // IPC perché fetch/XHR verso file:// è bloccato da Chromium — vedi plan 001
+  ipcMain.on("debug-beat", (event, beat) => handleRendererBeat(beat));
+
+  // La finestra si è accorta di non essere più disegnata: la scossa la può
+  // dare solo il main, che è chi possiede la finestra
+  ipcMain.on("repaint-request", () => requestRepaint(mainWindow));
+
   ipcMain.handle("read-vendor-file", (event, fileName) => {
     const relativePath = RENDERER_READABLE_FILES[fileName];
     if (!relativePath) {
@@ -658,6 +692,8 @@ function setupIPC() {
 // App initialization
 async function initialize() {
   try {
+    openJournal(app.getPath("userData"));
+    startDiagnostics(() => mainWindow);
     await initStore();
     setupIPC();
 
@@ -668,8 +704,10 @@ async function initialize() {
 
     createWindow();
     createTray();
+    setPeriodicRefresh(() => mainWindow, getSettings().windowRefreshSeconds);
   } catch (error) {
     console.error("Initialization error:", error);
+    logLine("anomalia", `avvio fallito: ${error}`);
     app.quit();
   }
 }
@@ -709,8 +747,10 @@ app.on("activate", () => {
 // Error handling
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
+  logLine("anomalia", `eccezione non gestita nel main: ${error?.stack ?? error}`);
 });
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled rejection:", reason);
+  logLine("anomalia", `promessa rifiutata senza gestione: ${reason}`);
 });

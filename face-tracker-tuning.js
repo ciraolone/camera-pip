@@ -12,8 +12,12 @@ const TRACKING_TUNING = {
   detectionFrameWidth: 256, // larghezza del frame ridotto passato al detector (px)
   detectionFailuresBeforeRestart: 5, // errori consecutivi prima di ricreare il detector
   detectorRecycleIntervalMs: 10 * 60 * 1000, // riciclo preventivo del worker di detection: il runtime MediaPipe accumula risorse a ogni frame anche senza errori (leak noto); si termina e ricrea il worker intero, l'unico riciclo che libera davvero la memoria
-  videoStallTimeoutMs: 4000, // nessun fotogramma consegnato per tanto così (a finestra visibile) → riavvio dello stream della camera
-  videoStallRestartCooldownMs: 15000, // distanza minima fra due riavvii della camera per stallo
+  lightCheckIntervalMs: 1000, // cadenza della misura di luminosità ambientale: la luce della stanza cambia piano, non serve di più
+  lightSampleWidth: 32, // larghezza del fotogramma ridotto su cui si misura la luminosità (px)
+  darkSuspendLuma: 35, // luminosità media (0-255) sotto cui la stanza è considerata buia e il rilevamento si sospende
+  lightResumeLuma: 55, // luminosità media sopra cui la luce è tornata. Più alta della soglia di buio apposta (isteresi): con una soglia sola il tracking si accenderebbe e spegnerebbe di continuo stando al confine
+  darkConfirmMs: 5000, // buio ininterrotto per tanto così prima di sospendere. Più lungo dell'attesa di volto assente, così l'inquadratura è già rientrata alla vista neutra quando il rilevamento si ferma
+  lightConfirmMs: 2000, // luce ininterrotta per tanto così prima di riprendere: più breve, il rientro deve essere pronto
   deadZoneStopFraction: 0.02, // errore (frazione del lato corto della finestra) sotto cui l'inseguimento si ferma
   faceAbsenceTimeoutMs: 3000, // attesa senza volto prima del rientro alla vista neutra
   faceStickinessRatio: 0.8, // il volto agganciato resta scelto finché è almeno l'80% del più grande

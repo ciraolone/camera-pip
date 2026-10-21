@@ -7,7 +7,9 @@
  * zona ammessa è solo un metro alternativo per misurare l'errore, e serve a
  * decidere quando muoversi e quanto zoom tenere a riposo. Solo funzioni pure
  * senza stato: lo stato e i loop vivono in face-tracker.js, che con
- * face-chase-policy.js è l'unico consumatore di questo file.
+ * face-chase-policy.js è l'unico consumatore di questo file. Qui stanno anche
+ * le due soglie con cui il loop di movimento decide se un passo è ormai
+ * trascurabile e se la vista è arrivata sul bersaglio.
  */
 
 // Misure di layout (offsetWidth/Height), non toccate dai transform CSS: con
@@ -125,4 +127,16 @@ function minimalZoomFor(placement, geometry, maxZoom, stopRadius, scanStep, erro
     if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius) return zoom;
   }
   return maxZoom;
+}
+
+function isTinyStep(view, next) {
+  return Math.abs(next.zoom - view.zoom) < 0.0005
+    && Math.abs(next.offsetX - view.offsetX) < 0.05
+    && Math.abs(next.offsetY - view.offsetY) < 0.05;
+}
+
+function isAtTarget(view, desired) {
+  return Math.abs(desired.zoom - view.zoom) < 0.005
+    && Math.abs(desired.offsetX - view.offsetX) < 0.5
+    && Math.abs(desired.offsetY - view.offsetY) < 0.5;
 }

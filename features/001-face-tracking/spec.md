@@ -26,6 +26,11 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 - Q: Partenza e frenata si possono accentuare? → A: Sì, nuovo setting "Easing" su tre livelli (di serie il 2): il livello 1 è il movimento della prima consegna, salendo la partenza diventa più graduale. Il tetto è fissato dove il movimento comincerebbe a oltrepassare il bersaglio, cosa che lo spec vieta.
 - Q: Il menu comincia a essere lungo. → A: Tutte le voci del tracking, interruttore compreso, stanno sotto un'unica voce "Face Tracking"; dentro il sottomenu il prefisso "Tracking" sparisce dalle etichette.
 
+### Sessione 2026-09-14
+
+- Q: Al buio il tracking può spegnersi da solo e riaccendersi quando la luce torna? → A: Sì. La luminosità media del fotogramma si misura una volta al secondo; sotto la soglia di buio per cinque secondi il rilevamento si sospende — il motore di rilevamento viene proprio terminato, quindi CPU e memoria rientrano — e sopra la soglia di rientro per due secondi riparte. Due soglie diverse e una conferma nel tempo, per non far lampeggiare il tracking stando al confine. L'interruttore del menu non si tocca: la pausa è automatica e non cambia le impostazioni.
+- Q: Le soglie si regolano dal menu? → A: No, per ora sono fisse. Il pannello info della webcam mostra la luminosità misurata, così si verifica dal vivo se i valori vanno bene per la stanza e semmai si ritarano nel codice; un interruttore a menu è parcheggiato nel backlog.
+
 ## Scenari
 
 ### Attivazione e disattivazione
@@ -75,6 +80,18 @@ Quando nessun volto è rilevato per qualche secondo, l'inquadratura torna da sol
 - Superata la soglia di assenza, l'inquadratura rientra dolcemente verso la vista neutra, con la stessa morbidezza di ogni altro movimento del tracking.
 - Quando un volto ricompare — anche a metà del rientro — l'inseguimento riprende normalmente.
 
+### Al buio il rilevamento si mette in pausa da solo
+
+Quando la stanza diventa buia il rilevamento non ha più niente da trovare: dopo qualche secondo si ferma da solo, e riparte da solo appena la luce torna. Il tracking resta acceso: quella che si sospende è solo la ricerca del volto. Test: TBD.
+
+- Se la luminosità dell'immagine resta sotto la soglia di buio per qualche secondo, il rilevamento si ferma: niente più ricerca del volto, e niente CPU né memoria spese dal motore di rilevamento finché dura il buio.
+- Il passaggio in pausa non produce scatti: il volto risulta assente e l'inquadratura rientra alla vista neutra con il solito movimento morbido.
+- La spunta "Enabled" nel menu resta attiva: la pausa è automatica e temporanea, non è uno spegnimento, e non va riattivata a mano.
+- Quando la luce torna e resta sopra la soglia di rientro per un paio di secondi, il rilevamento riparte da solo e l'inseguimento riprende normalmente.
+- Le due soglie sono diverse (quella di rientro più alta di quella di uscita) e ogni passaggio va confermato nel tempo: un'ombra, una mano davanti all'obiettivo o una luminosità che balla sul confine non fanno accendere e spegnere il tracking di continuo.
+- Con il pannello info della webcam attivo si leggono la luminosità misurata e, quando è il caso, l'avviso che il tracking è in pausa: serve a capire se le soglie sono tarate bene per la propria stanza.
+- Anche durante la pausa la sorveglianza sullo stallo della camera resta attiva: una camera che si incastra al buio viene comunque riavviata.
+
 ### L'inquadratura non esce mai dai bordi dell'immagine
 
 Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può arrivare al massimo al bordo dell'immagine, mai oltre. Test: TBD.
@@ -90,7 +107,7 @@ Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può a
 - Volto parzialmente fuori dal campo visivo della webcam: il tracking fa quel che può entro il vincolo dei bordi, senza comportamenti erratici.
 - Sessioni lunghe: se il motore di rilevamento va in errore, il tracking si auto-ripristina (o al peggio si spegne da solo); il video dell'app non deve mai congelarsi per colpa del tracking.
 - Il tracking non degrada la fluidità: né il video né il movimento di inseguimento devono diventare scattosi con il tracking acceso, anche su macchine modeste.
-- Camera che smette di consegnare fotogrammi con tracking attivo (driver incastrato, camera contesa da un altro programma): l'app riavvia da sola lo stream entro pochi secondi invece di restare congelata, senza martellare il dispositivo (al più un tentativo ogni ~15 secondi).
+- Camera che smette di consegnare fotogrammi (driver incastrato, camera contesa da un altro programma): l'app riavvia da sola lo stream entro pochi secondi invece di restare congelata, senza martellare il dispositivo (al più un tentativo ogni ~15 secondi). Non è più un comportamento del tracking: vale sempre, anche a tracking spento — vedi `003-immagine-ferma`.
 
 ## Non-goals
 

@@ -10,7 +10,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Allowed IPC channels for security
 const CHANNELS = {
-  send: ['devices-updated', 'device-active', 'webcam-info-update', 'zoom-request', 'offset-request', 'auto-flip-state-changed'],
+  send: ['devices-updated', 'device-active', 'webcam-info-update', 'zoom-request', 'offset-request', 'auto-flip-state-changed', 'debug-beat', 'repaint-request'],
   receive: ['device-selected', 'settings-changed', 'webcam-info-toggled', 'webcam-info-data', 'zoom-changed', 'offset-changed', 'flip-changed', 'face-tracking-changed', 'face-tracking-tuning-changed'],
   invoke: ['get-settings', 'read-vendor-file']
 };

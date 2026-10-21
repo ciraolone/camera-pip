@@ -5,21 +5,21 @@
  * CameraPiP per tenere gli occhi centrati in orizzontale a un terzo dall'alto.
  * Qui vivono il ciclo di vita (enable/disable, sospensioni), i due loop
  * (invio frame a cadenza ridotta e movimento a requestAnimationFrame), il
- * filtro anti-tremolio (face-selection.js) e il watchdog sullo stallo del
- * video, che riavvia la camera via callback se i fotogrammi smettono di
- * arrivare. Le decisioni sono delegate a face-chase-policy.js, l'integrazione
- * del moto alla molla di face-motion.js, la matematica della vista a
- * face-tracker-view.js e la taratura a face-tracker-tuning.js. Persiste
- * zoom/offset via IPC con throttle.
+ * filtro anti-tremolio (face-selection.js) e la sospensione automatica al
+ * buio comandata dalla sentinella della luce (face-light-watcher.js).
+ * Dell'immagine che si ferma non si occupa più: quella sorveglianza vale
+ * anche a tracking spento e vive in video-stall-watcher.js. Le decisioni sono
+ * delegate a face-chase-policy.js, il moto alla molla di face-motion.js,
+ * la matematica della vista a face-tracker-view.js e la taratura a
+ * face-tracker-tuning.js. Persiste zoom/offset via IPC con throttle.
  */
 
 class FaceTracker {
-  constructor({ videoElement, applyZoom, applyOffset, getEffectiveFlip, getView, restartCamera }) {
+  constructor({ videoElement, applyZoom, applyOffset, getEffectiveFlip, getView }) {
     this.videoElement = videoElement;
     this.applyZoom = applyZoom;
     this.applyOffset = applyOffset;
     this.getView = getView;
-    this.restartCamera = restartCamera;
     this.motion = new TrackingMotion();
     this.policy = new ChasePolicy({
       getView,
@@ -31,15 +31,18 @@ class FaceTracker {
       onDetections: (detections) => this.handleDetections(detections),
       onFatalError: () => this.setEnabled(false),
     });
+    this.lightWatcher = new LightWatcher({
+      videoElement,
+      onDarkness: () => this.suspendForDarkness(),
+      onLight: () => this.resumeFromDarkness(),
+    });
     // Taratura scelta dall'utente: arriva dai settings via setTuning (main → IPC)
     this.tuning = { maxZoom: 0, speed: 3, delaySeconds: 0, tolerance: 3, framing: DEFAULT_TRACKING_FRAMING, easing: 1 };
     this.isEnabled = false;
+    this.isSuspendedForDarkness = false; // rilevamento fermo perché la stanza è buia, tracking comunque acceso
     this.face = null; // centro-occhi filtrato del volto agganciato, coordinate normalizzate del frame raw
     this.lastFaceSeenAt = 0;
     this.lastVideoTime = -1;
-    this.lastFrameDeliveredAt = 0;
-    this.videoFrameCallbackId = null;
-    this.lastCameraRestartAt = 0;
     this.detectionTimer = null;
     this.animationFrameId = null;
     this.lastFrameAt = 0;
@@ -50,6 +53,10 @@ class FaceTracker {
 
   getMovementSpeed() {
     return { current: this.movementSpeed, peak: this.peakMovementSpeed };
+  }
+
+  getLightState() {
+    return { luma: this.lightWatcher.getLastLuma(), isSuspended: this.isSuspendedForDarkness };
   }
 
   setTuning(tuning) {
@@ -72,19 +79,16 @@ class FaceTracker {
     if (this.detectionTimer) return;
     // Il periodo di grazia senza volto parte da ora, non dall'epoca 0
     this.lastFaceSeenAt = this.lastFrameAt = performance.now();
-    this.lastFrameDeliveredAt = performance.now();
-    this.watchVideoFrames();
+    this.lightWatcher.start();
     this.detectionTimer = setInterval(() => this.detectTick(), TRACKING_TUNING.detectionIntervalMs);
     this.animationFrameId = requestAnimationFrame((now) => this.movementTick(now));
   }
 
   stopLoops() {
+    this.lightWatcher.stop();
+    this.isSuspendedForDarkness = false;
     clearInterval(this.detectionTimer);
     cancelAnimationFrame(this.animationFrameId);
-    if (this.videoFrameCallbackId !== null) {
-      this.videoElement.cancelVideoFrameCallback(this.videoFrameCallbackId);
-      this.videoFrameCallbackId = null;
-    }
     this.detectionTimer = null;
     this.animationFrameId = null;
     this.face = null;
@@ -94,44 +98,35 @@ class FaceTracker {
     this.peakMovementSpeed = 0;
   }
 
-  // Conta i fotogrammi davvero consegnati dalla camera. currentTime non serve
-  // allo scopo: su uno stream live avanza con l'orologio anche se i fotogrammi
-  // non arrivano più (verificato con la sonda del 2026-07-09).
-  watchVideoFrames() {
-    this.videoFrameCallbackId = this.videoElement.requestVideoFrameCallback(() => {
-      this.lastFrameDeliveredAt = performance.now();
-      this.watchVideoFrames();
-    });
-  }
-
   detectTick() {
     const video = this.videoElement;
-    const now = performance.now();
-    if (document.hidden || video.readyState < 2 || !video.videoWidth) {
-      // Niente conteggio di stallo quando il video non deve consegnare
-      // (finestra nascosta, stream in riavvio): il timer riparte da qui
-      this.lastFrameDeliveredAt = now;
-      return;
-    }
-    if (now - this.lastFrameDeliveredAt >= TRACKING_TUNING.videoStallTimeoutMs) {
-      this.maybeRestartStalledCamera(now);
-      return;
-    }
+    if (document.hidden || video.readyState < 2 || !video.videoWidth) return;
+    if (this.isSuspendedForDarkness) return;
     if (video.currentTime === this.lastVideoTime) return;
     this.lastVideoTime = video.currentTime;
     this.detection.requestDetection(video);
   }
 
-  // Watchdog sullo stallo: se la camera smette di consegnare fotogrammi
-  // (driver incastrato, camera contesa da un altro programma) il video resta
-  // congelato in silenzio, senza alcun errore da nessuna parte. Qui si riavvia
-  // lo stream, con un cooldown per non martellare un dispositivo malmesso.
-  maybeRestartStalledCamera(now) {
-    if (now - this.lastCameraRestartAt < TRACKING_TUNING.videoStallRestartCooldownMs) return;
-    console.error('Face tracking: la camera non consegna più fotogrammi, riavvio lo stream');
-    this.lastCameraRestartAt = now;
-    this.lastFrameDeliveredAt = now;
-    this.restartCamera();
+  // Al buio il rilevamento non ha niente da trovare: si ferma il detector — e
+  // con il worker che muore se ne va anche la memoria del runtime MediaPipe —
+  // mentre l'inquadratura, dichiarato assente il volto, rientra alla vista
+  // neutra con il solito movimento morbido, senza scatti. La camera resta
+  // comunque sorvegliata: quel mestiere è di video-stall-watcher.js, che gira
+  // sempre, anche a tracking spento.
+  suspendForDarkness() {
+    if (!this.isEnabled || this.isSuspendedForDarkness) return;
+    console.log('Face tracking: troppo buio, rilevamento sospeso');
+    this.isSuspendedForDarkness = true;
+    this.detection.stop();
+    this.face = null;
+    this.policy.onFaceLost();
+  }
+
+  resumeFromDarkness() {
+    if (!this.isEnabled || !this.isSuspendedForDarkness) return;
+    console.log('Face tracking: luce tornata, rilevamento ripreso');
+    this.isSuspendedForDarkness = false;
+    this.detection.start();
   }
 
   handleDetections(detections) {
@@ -194,16 +189,4 @@ class FaceTracker {
     window.electronAPI.send('zoom-request', 'set-level', view.zoom);
     window.electronAPI.send('offset-request', 'set-position', { x: view.offsetX, y: view.offsetY });
   }
-}
-
-function isTinyStep(view, next) {
-  return Math.abs(next.zoom - view.zoom) < 0.0005
-    && Math.abs(next.offsetX - view.offsetX) < 0.05
-    && Math.abs(next.offsetY - view.offsetY) < 0.05;
-}
-
-function isAtTarget(view, desired) {
-  return Math.abs(desired.zoom - view.zoom) < 0.005
-    && Math.abs(desired.offsetX - view.offsetX) < 0.5
-    && Math.abs(desired.offsetY - view.offsetY) < 0.5;
 }

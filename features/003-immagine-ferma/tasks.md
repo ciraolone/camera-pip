@@ -1,0 +1,8 @@
+# Tasks: L'immagine che si ferma
+
+- [x] T1 — `video-stall-watcher.js`: conteggio dei fotogrammi mostrati, controllo ogni 250 ms, classificazione del guasto confrontando decodificati e mostrati. Verifica: nel diario i fotogrammi mostrati risultano coerenti con gli fps della camera — 2026-09-14.
+- [x] T2 — `window-repaint.js`: i due gradini della scossa, intervallo minimo fra tentativi, reset della serie. Verifica: simulata fuori dall'app una sequenza di blocchi — ridisegno, poi spinta, e ritorno alla posizione esatta di partenza — 2026-09-14.
+- [x] T3 — Smontaggio del vecchio watchdog da `face-tracker.js`, con `isTinyStep` e `isAtTarget` spostate in `face-tracker-view.js`. Verifica: il file torna sotto le 200 righe e il tracking funziona ancora (diario: `tracking=acceso`) — 2026-09-14.
+- [x] T4 — Canale `repaint-request` fra renderer e main; il diario legge i fotogrammi mostrati dalla sentinella invece di contarli una seconda volta. Verifica: avvio pulito, battiti regolari, nessun falso allarme — 2026-09-14.
+- [x] T5 — Rilevazione a mezzo secondo basata sul confronto dei conteggi, riaffermazione del primo piano, freno ai tentativi infiniti, primo riavvio camera senza attesa, e opzione "Auto Refresh" nel menu Window. Verifica: simulate webcam da 30, 3 e 1 fps (nessun falso allarme), finestra congelata a 30 e a 3 fps (scossa entro 0,5–0,75 s), camera morta (riavvio a 4 s, il successivo a 20 s) — 2026-09-14.
+- [ ] T6 — Conferma sul campo: al prossimo blocco sul portatile il diario deve mostrare una riga `rimedio` e, nei battiti successivi, i fotogrammi mostrati di nuovo in salita. Da verificare quando ricapita.
