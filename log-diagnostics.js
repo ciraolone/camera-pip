@@ -20,6 +20,7 @@ let isTrackingWanted = () => false;
 let windowSettleTimer = null;
 let currentTrackingMismatch = null;
 let lastBeatAt = 0;
+let lastSleepEventAt = 0; // ultimo suspend o resume del sistema
 let lastWindowDisplayId = null;
 let currentAnomaly = null;
 let anomalyStartedAt = 0;
@@ -97,6 +98,20 @@ function watchPower() {
   ].forEach((eventName) =>
     powerMonitor.on(eventName, () => logLine('alimentazione', eventName)),
   );
+  ['suspend', 'resume'].forEach((eventName) =>
+    powerMonitor.on(eventName, () => {
+      lastSleepEventAt = Date.now();
+    }),
+  );
+}
+
+// Durante una sospensione il codice della finestra è fermo per forza: le pause
+// e i silenzi che la scavalcano non sono guasti. Basta un suspend o un resume
+// dopo il battito precedente, perché nei diari veri il risveglio arriva a volte
+// senza il suspend (2026-10-21) e a volte il battito arriva qualche
+// millisecondo prima del resume (2026-10-30).
+function hasSleptSince(timestamp) {
+  return lastSleepEventAt >= timestamp;
 }
 
 function describeWindow(window) {
@@ -176,10 +191,11 @@ function noteWindowDisplayChange(window) {
 }
 
 function handleRendererBeat(beat) {
+  const hasSleptSinceLastBeat = hasSleptSince(lastBeatAt);
   lastBeatAt = Date.now();
   const window = getMainWindow();
   logLine('battito', `${describeBeat(beat)} — ${describeWindow(window)}`);
-  reportAnomaly(findBeatAnomaly(beat, window));
+  reportAnomaly(findBeatAnomaly(beat, window, hasSleptSinceLastBeat));
   noteTrackingMismatch(beat);
 }
 
@@ -237,8 +253,8 @@ function describeBeat(beat) {
 // dicono se lo stream è vivo. I fotogrammi decodificati contano anche mentre
 // la finestra non viene disegnata, quindi sono l'unico modo di sapere che la
 // camera stava consegnando durante un blocco del disegno.
-function findBeatAnomaly(beat, window) {
-  if (beat.maxTimerGapMs >= BLOCKED_RENDERER_GAP_MS) {
+function findBeatAnomaly(beat, window, hasSleptSinceLastBeat) {
+  if (beat.maxTimerGapMs >= BLOCKED_RENDERER_GAP_MS && !hasSleptSinceLastBeat) {
     return `il codice della finestra si è fermato per ${(beat.maxTimerGapMs / 1000).toFixed(1)}s`;
   }
   // A finestra nascosta o minimizzata Chromium smette di disegnare apposta:
@@ -267,7 +283,7 @@ function findBeatAnomaly(beat, window) {
 // Se la finestra tace, a parlare resta il main: il silenzio va annotato da
 // qui, altrimenti nel diario resterebbe solo un buco senza spiegazione.
 function checkRendererSilence() {
-  if (Date.now() - lastBeatAt < BEAT_SILENCE_MS) {
+  if (Date.now() - lastBeatAt < BEAT_SILENCE_MS || hasSleptSince(lastBeatAt)) {
     return;
   }
   lastBeatAt = Date.now();

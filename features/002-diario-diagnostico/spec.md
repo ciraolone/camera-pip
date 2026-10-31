@@ -38,6 +38,7 @@ Chi rilegge il diario non deve interpretare numeri: quando i contatori disegnano
 - Se la camera smette di consegnare fotogrammi mentre la finestra viene ancora disegnata, il diario lo distingue dal caso precedente.
 - Se il codice della finestra resta fermo per più di qualche secondo, il diario lo registra con la durata della pausa.
 - Se la finestra smette del tutto di farsi sentire, è il processo principale ad annotarne il silenzio.
+- Pause e silenzi che scavalcano una sospensione del computer non sono anomalie e non vengono segnalati.
 - Un guasto che dura a lungo non riempie il file di righe uguali: si annota quando comincia e quando rientra, con quanto è durato.
 - Una finestra nascosta o minimizzata non genera falsi allarmi: lì Windows smette di disegnare apposta.
 

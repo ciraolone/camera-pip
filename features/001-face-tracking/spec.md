@@ -13,7 +13,7 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 - Q: Con più volti nel campo visivo, quale si insegue? → A: Il più grande nell'immagine (cioè il più vicino alla webcam), con un po' di stabilità per non saltare tra volti di dimensioni simili.
 - Q: Quale valore di partenza per il tetto di zoom del tracking? → A: 1.5x, così il tracking funziona fin dal primo uso con un ingrandimento leggero (con Off e zoom a 1.0x sembrerebbe rotto).
 - Q: (prima sessione di taratura) Come si regola la delicatezza del movimento? → A: Tre setting a menu: velocità su 5 livelli (default 3; il livello 4 replica la prima consegna), ritardo di partenza da 0 a 2 secondi a passi di 0.5 (default 0), tolleranza su 5 livelli (default 3). Lo zoom inoltre va tenuto in ogni momento al minimo indispensabile entro il tetto configurato.
-- Q: (seconda sessione di taratura) Quali rifiniture per la qualità del movimento? → A: Partenza graduale oltre che arrivo graduale (accelera e decelera dolcemente), velocità adattiva (correzioni piccole lente, spostamenti ampi più decisi, fino al doppio), filtro anti-tremolio sul rilevamento. Parcheggiate nel backlog: scorciatoia da tastiera, toggle nella tray, indicatore di stato.
+- Q: (seconda sessione di taratura) Quali rifiniture per la qualità del movimento? → A: Partenza graduale oltre che arrivo graduale (accelera e decelera dolcemente), velocità adattiva (correzioni piccole lente, spostamenti ampi più decisi, fino al doppio), filtro anti-tremolio sul rilevamento. Rimaste fuori: scorciatoia da tastiera, toggle nella tray, indicatore di stato.
 
 ### Sessione 2026-08-10
 
@@ -29,7 +29,7 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 ### Sessione 2026-09-14
 
 - Q: Al buio il tracking può spegnersi da solo e riaccendersi quando la luce torna? → (Superata il 2026-10-21, vedi sotto.) A: Sì. La luminosità media del fotogramma si misura una volta al secondo; sotto la soglia di buio per cinque secondi il rilevamento si sospende — il motore di rilevamento viene proprio terminato, quindi CPU e memoria rientrano — e sopra la soglia di rientro per due secondi riparte. Due soglie diverse e una conferma nel tempo, per non far lampeggiare il tracking stando al confine. L'interruttore del menu non si tocca: la pausa è automatica e non cambia le impostazioni.
-- Q: Le soglie si regolano dal menu? → A: No, per ora sono fisse. Il pannello info della webcam mostra la luminosità misurata, così si verifica dal vivo se i valori vanno bene per la stanza e semmai si ritarano nel codice; un interruttore a menu è parcheggiato nel backlog.
+- Q: Le soglie si regolano dal menu? → A: No, per ora sono fisse. Il pannello info della webcam mostra la luminosità misurata, così si verifica dal vivo se i valori vanno bene per la stanza e semmai si ritarano nel codice; niente interruttore a menu.
 
 ### Sessione 2026-10-21
 

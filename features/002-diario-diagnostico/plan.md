@@ -45,5 +45,5 @@ Tre file nuovi e aggiunte minime a quelli esistenti. Il processo main possiede i
 
 ## Rischi noti
 
-- Le soglie del riconoscimento (pausa del timer oltre 3 s, silenzio del battito oltre 25 s) sono scelte a tavolino: i primi diari veri diranno se generano falsi allarmi.
+- Le soglie del riconoscimento (pausa del timer oltre 3 s, silenzio del battito oltre 25 s) sono state verificate sui diari veri di settembre e ottobre 2026: gli unici falsi allarmi venivano dalla sospensione del laptop, non dalle soglie. Per questo pausa e silenzio non si segnalano se dopo il battito precedente è arrivato un suspend o un resume (`hasSleptSince`).
 - `performance.memory` non è standard: se un domani sparisse, la riga riporterebbe 0 senza rompere niente.

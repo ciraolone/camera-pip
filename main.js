@@ -189,11 +189,46 @@ let tray;
 let videoDevices = [];
 let lastKeyTime = 0;
 const KEY_DEBOUNCE_DELAY = 150; // Milliseconds
+const RENDERER_CRASH_CONFIRM_MS = 2000; // vedi handleRendererGone
 
 // Initialize store
 async function initStore() {
   const { default: Store } = await import('electron-store');
   store = new Store();
+}
+
+// Rete di sicurezza sui crash del renderer (tipicamente esaurimento memoria
+// con face tracking attivo in sessioni lunghe): il tracking va spento PRIMA
+// di ricaricare, perché con il tracking persistito attivo l'app rientrava in
+// crash pochi secondi dopo ogni riapertura finché l'utente non lo spegneva a
+// mano dal menu. clean-exit e killed sono uscite normali, non crash.
+// Una chiusura forzata dell'intera app dall'esterno, su Windows, uccide i
+// figli un attimo prima del main, che fa in tempo a vedere il renderer morto
+// come "crashed": nei diari del 2026-09-14 e 2026-10-21 tutti e cinque gli
+// spegnimenti erano così, con GPU e Utility morti nello stesso decimo di
+// secondo (codice 143) e l'app sparita subito dopo. Per questo la decisione
+// aspetta RENDERER_CRASH_CONFIRM_MS: se l'app sta morendo tutta, il main
+// sparisce prima di salvare e il tracking resta com'era.
+function handleRendererGone(details) {
+  if (details.reason === 'clean-exit' || details.reason === 'killed') {
+    return;
+  }
+  logLine(
+    'anomalia',
+    `renderer terminato (${details.reason}, codice ${details.exitCode}): se l'app resta viva ricarico la finestra con face tracking spento`,
+  );
+  setTimeout(() => {
+    console.error(
+      `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
+    );
+    logLine('anomalia', 'crash confermato: face tracking spento, ricarico');
+    if (getSettings().faceTracking) {
+      saveSettings({ faceTracking: false });
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload();
+    }
+  }, RENDERER_CRASH_CONFIRM_MS);
 }
 
 // Window management
@@ -245,27 +280,9 @@ function createWindow() {
     contextMenu.popup({ window: mainWindow, x: params.x, y: params.y });
   });
 
-  // Rete di sicurezza sui crash del renderer (tipicamente esaurimento memoria
-  // con face tracking attivo in sessioni lunghe): il tracking va spento PRIMA
-  // di ricaricare, perché con il tracking persistito attivo l'app rientrava in
-  // crash pochi secondi dopo ogni riapertura finché l'utente non lo spegneva a
-  // mano dal menu. clean-exit e killed sono uscite normali, non crash.
-  mainWindow.webContents.on('render-process-gone', (event, details) => {
-    if (details.reason === 'clean-exit' || details.reason === 'killed') {
-      return;
-    }
-    console.error(
-      `Renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
-    );
-    logLine(
-      'anomalia',
-      `renderer terminato (${details.reason}): ricarico la finestra con face tracking spento`,
-    );
-    if (getSettings().faceTracking) {
-      saveSettings({ faceTracking: false });
-    }
-    mainWindow?.webContents.reload();
-  });
+  mainWindow.webContents.on('render-process-gone', (event, details) =>
+    handleRendererGone(details),
+  );
 
   mainWindow.on('closed', () => {
     mainWindow = null;
