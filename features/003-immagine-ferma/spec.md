@@ -73,6 +73,8 @@ Il comportamento che c'era già resta, ma ora vale sempre. Test: TBD.
 - Fra due riavvii passano almeno quindici secondi, per non martellare un dispositivo malmesso.
 - Il primo riavvio non aspetta nessun intervallo, nemmeno se il guasto arriva nei primi secondi di vita dell'app.
 - Il riavvio avviene anche a face tracking spento, cosa che prima non succedeva.
+- Se al riavvio la webcam scelta non risponde ancora, l'app apre quella predefinita con la stessa risoluzione e gli stessi fotogrammi al secondo impostati, e lo annota nel diario come avviso, non come errore. La webcam scelta resta quella salvata: il riavvio successivo riprova lei.
+- Solo se non si apre nemmeno la webcam predefinita l'episodio è un errore.
 
 ## Non-goals
 

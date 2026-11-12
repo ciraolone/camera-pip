@@ -271,11 +271,7 @@ class CameraPiP {
 
       const settings = await this.getSettings();
       const actualDeviceId = deviceId || settings.selectedDeviceId;
-      const constraints = this.createConstraints(actualDeviceId, settings);
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      this.videoElement.srcObject = stream;
-      this.currentStream = stream;
+      await this.openStream(this.createConstraints(actualDeviceId, settings));
       this.retryCount = 0;
 
       // Notify main process about active device
@@ -283,9 +279,14 @@ class CameraPiP {
         window.electronAPI.send('device-active', actualDeviceId);
       }
     } catch (error) {
-      console.error('Camera start error:', error);
       await this.handleError(error);
     }
+  }
+
+  async openStream(constraints) {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.videoElement.srcObject = stream;
+    this.currentStream = stream;
   }
 
   // Stop current camera stream
@@ -347,6 +348,17 @@ class CameraPiP {
 
   // Handle camera errors
   async handleError(error) {
+    // createConstraints mette come vincolo rigido solo il deviceId (risoluzione e fps sono "ideal"):
+    // l'OverconstrainedError vuol dire che la camera scelta in questo istante non c'è, tipicamente
+    // perché Windows la sta rimettendo in piedi dopo che ha smesso di consegnare fotogrammi. È un
+    // caso previsto e riparato qui sotto, quindi è un avviso: come errore aprirebbe una chat di guasto.
+    if (error.name === 'OverconstrainedError') {
+      console.warn(
+        `Camera scelta non disponibile (vincolo ${error.constraint}), apro quella predefinita`,
+      );
+      await this.retryWithDefaultCamera();
+      return;
+    }
     console.error('Camera error:', error.name, error.message);
 
     switch (error.name) {
@@ -365,31 +377,24 @@ class CameraPiP {
         this.showError('Camera in use by another application');
         break;
 
-      case 'OverconstrainedError':
-        await this.retryWithFallback();
-        break;
-
       default:
         await this.retryConnection();
     }
   }
 
-  // Retry with fallback settings
-  async retryWithFallback() {
+  // Stesse impostazioni di risoluzione e fps, senza imporre la camera. Non manda device-active:
+  // la scelta salvata resta quella dell'utente, e il prossimo riavvio riprova quella.
+  async retryWithDefaultCamera() {
     try {
-      const fallbackConstraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-        },
-      };
-
-      const stream =
-        await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-      this.videoElement.srcObject = stream;
-      this.currentStream = stream;
+      const settings = await this.getSettings();
+      await this.openStream(this.createConstraints(null, settings));
+      this.retryCount = 0;
     } catch (error) {
+      console.error(
+        'Camera error: non si apre nemmeno la camera predefinita:',
+        error.name,
+        error.message,
+      );
       await this.retryConnection();
     }
   }
