@@ -81,6 +81,7 @@ class CameraPiP {
         tolerance: settings.faceTrackingTolerance,
         framing: settings.faceTrackingFraming,
         easing: settings.faceTrackingEasing,
+        twoPeople: settings.faceTrackingTwoPeople,
       });
       this.framingOverlay.setFraming(settings.faceTrackingFraming);
       this.faceTracker.setEnabled(

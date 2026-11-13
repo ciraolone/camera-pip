@@ -2,38 +2,81 @@
  * Selezione del volto da inseguire fra i rilevamenti di MediaPipe: vince il
  * più grande nell'immagine (il più vicino alla webcam), con un'isteresi che
  * tiene agganciato il volto già inseguito finché resta di dimensioni
- * paragonabili, per non saltare fra volti simili. Funzioni pure senza stato,
+ * paragonabili, per non saltare fra volti simili. In modalità due persone
+ * selectTrackedPair riduce i due volti più grandi a un punto solo, il centro
+ * fra i due, con l'ingombro della coppia attorno. Funzioni pure senza stato,
  * usate solo da face-tracker.js, che passa il volto dell'ultimo giro e le
  * soglie di taratura.
  */
 
 // previousFace è il centro-occhi dell'ultimo giro ({u, v} normalizzati) o null.
-function selectTrackedFace(detections, previousFace, stickinessRatio, sameFaceMaxDistance) {
-  if (!detections || detections.length === 0) return null;
+function selectTrackedFace(
+  detections,
+  previousFace,
+  stickinessRatio,
+  sameFaceMaxDistance,
+) {
+  if (!detections || detections.length === 0) {return null;}
   let largest = detections[0];
   for (const detection of detections) {
-    if (faceAreaOf(detection) > faceAreaOf(largest)) largest = detection;
+    if (faceAreaOf(detection) > faceAreaOf(largest)) {largest = detection;}
   }
-  const tracked = findPreviousFace(detections, previousFace, sameFaceMaxDistance);
-  if (tracked && faceAreaOf(tracked) >= faceAreaOf(largest) * stickinessRatio) return tracked;
+  const tracked = findPreviousFace(
+    detections,
+    previousFace,
+    sameFaceMaxDistance,
+  );
+  if (tracked && faceAreaOf(tracked) >= faceAreaOf(largest) * stickinessRatio)
+    {return tracked;}
   return largest;
 }
 
 // Il volto già agganciato è quello col centro-occhi più vicino a quello
 // dell'ultimo giro, se abbastanza vicino da poter essere lo stesso volto.
 function findPreviousFace(detections, previousFace, sameFaceMaxDistance) {
-  if (!previousFace) return null;
+  if (!previousFace) {return null;}
   let best = null;
   let bestDistance = sameFaceMaxDistance;
   for (const detection of detections) {
     const eyes = eyeCenterOf(detection);
-    const distance = Math.hypot(eyes.u - previousFace.u, eyes.v - previousFace.v);
+    const distance = Math.hypot(
+      eyes.u - previousFace.u,
+      eyes.v - previousFace.v,
+    );
     if (distance < bestDistance) {
       best = detection;
       bestDistance = distance;
     }
   }
   return best;
+}
+
+// Con meno di due volti ritorna null e si ricade sull'inseguimento del singolo.
+// extent sono le distanze dal centro-coppia ai bordi dell'unione dei due
+// riquadri: servono a pairZoomCapFor per non tagliare fuori nessuno.
+function selectTrackedPair(detections) {
+  if (!detections || detections.length < 2) {return null;}
+  const [first, second] = [...detections].sort(
+    (a, b) => faceAreaOf(b) - faceAreaOf(a),
+  );
+  const firstEyes = eyeCenterOf(first);
+  const secondEyes = eyeCenterOf(second);
+  const center = {
+    u: (firstEyes.u + secondEyes.u) / 2,
+    v: (firstEyes.v + secondEyes.v) / 2,
+  };
+  const boxes = [first.boundingBox, second.boundingBox];
+  return {
+    eyes: center,
+    extent: {
+      left: center.u - Math.min(...boxes.map((box) => box.originX)),
+      right:
+        Math.max(...boxes.map((box) => box.originX + box.width)) - center.u,
+      top: center.v - Math.min(...boxes.map((box) => box.originY)),
+      bottom:
+        Math.max(...boxes.map((box) => box.originY + box.height)) - center.v,
+    },
+  };
 }
 
 function faceAreaOf(detection) {
@@ -51,8 +94,11 @@ function eyeCenterOf(detection) {
 // dalla posizione nuova (cambio volto o spostamento repentino), senza
 // trascinare la media attraverso il salto.
 function smoothFacePosition(previousFace, eyes, smoothingAlpha, snapDistance) {
-  if (!previousFace) return eyes;
-  if (Math.hypot(eyes.u - previousFace.u, eyes.v - previousFace.v) > snapDistance) return eyes;
+  if (!previousFace) {return eyes;}
+  if (
+    Math.hypot(eyes.u - previousFace.u, eyes.v - previousFace.v) > snapDistance
+  )
+    {return eyes;}
   return {
     u: previousFace.u + (eyes.u - previousFace.u) * smoothingAlpha,
     v: previousFace.v + (eyes.v - previousFace.v) * smoothingAlpha,

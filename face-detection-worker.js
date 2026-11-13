@@ -17,11 +17,14 @@ let detector = null;
 let sampleCanvas = null;
 let sampleContext = null;
 
-const asBlobUrl = (bytes, mimeType) => URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+const asBlobUrl = (bytes, mimeType) =>
+  URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 
 async function initDetector(assets) {
   try {
-    const visionBundle = await import(asBlobUrl(assets.bundleBytes, 'text/javascript'));
+    const visionBundle = await import(
+      asBlobUrl(assets.bundleBytes, 'text/javascript')
+    );
     detector = await visionBundle.FaceDetector.createFromOptions(
       {
         wasmLoaderPath: asBlobUrl(assets.wasmLoaderBytes, 'text/javascript'),
@@ -33,7 +36,7 @@ async function initDetector(assets) {
           delegate: 'CPU',
         },
         runningMode: 'VIDEO',
-      }
+      },
     );
     self.postMessage({ type: 'ready' });
   } catch (error) {
@@ -46,22 +49,31 @@ function detectFrame(frame, timestampMs) {
     sampleCanvas = new OffscreenCanvas(frame.width, frame.height);
     sampleContext = sampleCanvas.getContext('2d', { willReadFrequently: true });
   }
-  if (sampleCanvas.width !== frame.width || sampleCanvas.height !== frame.height) {
+  if (
+    sampleCanvas.width !== frame.width ||
+    sampleCanvas.height !== frame.height
+  ) {
     sampleCanvas.width = frame.width;
     sampleCanvas.height = frame.height;
   }
   sampleContext.drawImage(frame, 0, 0);
   frame.close();
-  const pixels = sampleContext.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height);
+  const { width, height } = sampleCanvas;
+  const pixels = sampleContext.getImageData(0, 0, width, height);
   const result = detector.detectForVideo(pixels, timestampMs);
+  // MediaPipe dà il riquadro in pixel e i keypoint normalizzati: il riquadro
+  // si normalizza qui perché la modalità due persone li confronta fra loro.
   return result.detections.map((detection) => ({
     boundingBox: {
-      originX: detection.boundingBox.originX,
-      originY: detection.boundingBox.originY,
-      width: detection.boundingBox.width,
-      height: detection.boundingBox.height,
+      originX: detection.boundingBox.originX / width,
+      originY: detection.boundingBox.originY / height,
+      width: detection.boundingBox.width / width,
+      height: detection.boundingBox.height / height,
     },
-    keypoints: detection.keypoints.map((keypoint) => ({ x: keypoint.x, y: keypoint.y })),
+    keypoints: detection.keypoints.map((keypoint) => ({
+      x: keypoint.x,
+      y: keypoint.y,
+    })),
   }));
 }
 
@@ -71,14 +83,17 @@ self.onmessage = (event) => {
     initDetector(message.assets);
     return;
   }
-  if (message.type !== 'detect') return;
+  if (message.type !== 'detect') {return;}
   if (!detector) {
     message.frame.close();
     self.postMessage({ type: 'error', message: 'detector assente' });
     return;
   }
   try {
-    self.postMessage({ type: 'result', detections: detectFrame(message.frame, message.timestampMs) });
+    self.postMessage({
+      type: 'result',
+      detections: detectFrame(message.frame, message.timestampMs),
+    });
   } catch (error) {
     self.postMessage({ type: 'error', message: String(error) });
   }

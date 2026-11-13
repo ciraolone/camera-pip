@@ -16,7 +16,7 @@ function describeTrackingForDiary(faceTracker, view) {
     `cicli=${faceTracker.detectionTimer ? 'attivi' : 'FERMI'}`,
     `rilevatore=${detection.state} ultima-risposta=${detection.sinceLastResult}`,
     `rilevamenti(chiesti=${detection.requested} risposte=${detection.results} con-volto=${detection.withFace} errori=${detection.errors} saltati=${detection.skippedBusy})`,
-    `volto=${faceTracker.face ? 'agganciato' : 'nessuno'} inseguimento=${faceTracker.policy.isChasing ? 'sì' : 'no'}`,
+    `volto=${faceTracker.face ? (faceTracker.face.extent ? 'coppia' : 'agganciato') : 'nessuno'} inseguimento=${faceTracker.policy.isChasing ? 'sì' : 'no'}`,
     `vista(zoom=${view.zoom.toFixed(2)} x=${Math.round(view.offsetX)} y=${Math.round(view.offsetY)})`,
   ];
   if (detection.lastError) {

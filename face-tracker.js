@@ -5,7 +5,8 @@
  * CameraPiP per tenere gli occhi centrati in orizzontale a un terzo dall'alto.
  * Qui vivono il ciclo di vita (enable/disable, sospensioni), i due loop
  * (invio frame a cadenza ridotta e movimento a requestAnimationFrame), il
- * filtro anti-tremolio (face-selection.js) e il rallentamento del
+ * filtro anti-tremolio, la scelta fra volto singolo e coppia in modalità
+ * due persone (face-selection.js) e il rallentamento del
  * rilevamento quando nessun volto si vede da un po' (face-detection-pace.js).
  * Dell'immagine che si ferma non si occupa più: quella sorveglianza vale
  * anche a tracking spento e vive in video-stall-watcher.js. Le decisioni sono
@@ -46,10 +47,11 @@ class FaceTracker {
       tolerance: 3,
       framing: DEFAULT_TRACKING_FRAMING,
       easing: 1,
+      twoPeople: false,
     };
     this.isEnabled = false;
     this.pace = new DetectionPace();
-    this.face = null; // centro-occhi filtrato del volto agganciato, coordinate normalizzate del frame raw
+    this.face = null; // centro-occhi filtrato del volto (o della coppia), coordinate normalizzate del frame raw; extent solo per la coppia
     this.lastFaceSeenAt = 0;
     this.lastVideoTime = -1;
     this.detectionTimer = null;
@@ -131,25 +133,35 @@ class FaceTracker {
     this.detection.requestDetection(video);
   }
 
+  // In modalità due persone, con almeno due volti, si insegue il centro della
+  // coppia; altrimenti il volto singolo. Il passaggio fra i due salta oltre
+  // sameFaceMaxDistance e il filtro anti-tremolio riparte dalla posizione nuova.
   handleDetections(detections) {
+    const pair = this.tuning.twoPeople ? selectTrackedPair(detections) : null;
+    const eyes = pair ? pair.eyes : this.selectSingleFaceEyes(detections);
+    if (!eyes) {
+      this.face = null;
+      this.policy.onFaceLost();
+      return;
+    }
+    const smoothed = smoothFacePosition(
+      this.face,
+      eyes,
+      TRACKING_TUNING.faceSmoothingAlpha,
+      TRACKING_TUNING.sameFaceMaxDistance,
+    );
+    this.face = { u: smoothed.u, v: smoothed.v, extent: pair?.extent ?? null };
+    this.lastFaceSeenAt = performance.now();
+  }
+
+  selectSingleFaceEyes(detections) {
     const selected = selectTrackedFace(
       detections,
       this.face,
       TRACKING_TUNING.faceStickinessRatio,
       TRACKING_TUNING.sameFaceMaxDistance,
     );
-    if (!selected) {
-      this.face = null;
-      this.policy.onFaceLost();
-      return;
-    }
-    this.face = smoothFacePosition(
-      this.face,
-      eyeCenterOf(selected),
-      TRACKING_TUNING.faceSmoothingAlpha,
-      TRACKING_TUNING.sameFaceMaxDistance,
-    );
-    this.lastFaceSeenAt = performance.now();
+    return selected ? eyeCenterOf(selected) : null;
   }
 
   movementTick(now) {

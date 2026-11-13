@@ -5,7 +5,8 @@
  * ammessa, si arriva solo sul punto bersaglio — così ogni intervento rimette
  * il volto in posizione buona invece di lasciarlo sul bordo. Contiene quella
  * isteresi con il ritardo di partenza, la scelta della zona in base al setting
- * di inquadratura, la scelta del minimo zoom necessario con anti flip-flop, il
+ * di inquadratura, la scelta del minimo zoom necessario con anti flip-flop
+ * (entro un tetto che in modalità due persone tiene dentro la coppia), il
  * rientro dello zoom quando non è più indispensabile e il ritorno alla vista
  * neutra quando il volto manca da qualche secondo. Ritorna null quando non
  * c'è niente da fare, altrimenti un target {zoom, offsetX, offsetY,
@@ -47,6 +48,16 @@ class ChasePolicy {
       TRACKING_FRAMING_ZONES[tuning.framing] ??
       TRACKING_FRAMING_ZONES[DEFAULT_TRACKING_FRAMING];
     const placement = computeFacePlacement(face, geometry, isFlipped, zone);
+    // In modalità due persone il tetto scende per non tagliare fuori nessuno:
+    // anche il target già salito va riportato sotto, o lo zoom resterebbe alto.
+    const maxZoom = trackingMaxZoomFor(
+      face,
+      geometry,
+      zone,
+      tuning.maxZoom,
+      TRACKING_TUNING.pairFitFraction,
+    );
+    this.clampZoomTarget(maxZoom);
     const shortSide = Math.min(geometry.windowWidth, geometry.windowHeight);
     const stopRadius = TRACKING_TUNING.deadZoneStopFraction * shortSide;
     // Lo zoom lo detta la zona, non il bersaglio: si compra solo l'ingrandimento
@@ -54,11 +65,11 @@ class ChasePolicy {
     // punta comunque al centro. Comprarne abbastanza da centrarlo sempre
     // costerebbe molto di più e verrebbe poi disfatto dal rientro dello zoom.
     const needed =
-      tuning.maxZoom > 0
+      maxZoom > 0
         ? minimalZoomFor(
             placement,
             geometry,
-            tuning.maxZoom,
+            maxZoom,
             stopRadius,
             TRACKING_TUNING.zoomScanStep,
             faceErrorFromZone,
@@ -100,9 +111,9 @@ class ChasePolicy {
         now,
       )
     ) {
-      return this.maybeReleaseZoom(placement, view, needed);
+      return this.maybeReleaseZoom(placement, view, needed, maxZoom);
     }
-    const zoom = tuning.maxZoom > 0 ? this.updateZoomTarget(needed) : view.zoom;
+    const zoom = maxZoom > 0 ? this.updateZoomTarget(needed) : view.zoom;
     // Spostamenti ampi → passo più deciso: il boost cresce con l'errore e satura
     const speedBoost =
       1 +
@@ -171,8 +182,7 @@ class ChasePolicy {
   // volto fermo sullo schermo (gli offset compensano la scalatura). Il needed
   // è lo stesso che usa l'inseguimento, calcolato una volta sola dal chiamante:
   // se i due divergessero, il rientro disferebbe il lavoro appena fatto.
-  maybeReleaseZoom(placement, view, needed) {
-    const maxZoom = this.getTuning().maxZoom;
+  maybeReleaseZoom(placement, view, needed, maxZoom) {
     if (maxZoom <= 0) {
       return null;
     }

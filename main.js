@@ -406,6 +406,9 @@ function getSettings() {
     faceTrackingTolerance: store ? store.get('faceTrackingTolerance', 3) : 3,
     faceTrackingFraming: readTrackingFraming(),
     faceTrackingEasing: store ? store.get('faceTrackingEasing', 2) : 2,
+    faceTrackingTwoPeople: store
+      ? store.get('faceTrackingTwoPeople', false)
+      : false,
   };
 }
 
@@ -452,6 +455,16 @@ function buildFaceTrackingSubmenu(settings) {
       type: 'checkbox',
       checked: settings.faceTracking,
       click: () => toggleFaceTracking(),
+    },
+    {
+      label: 'Two People',
+      type: 'checkbox',
+      checked: settings.faceTrackingTwoPeople,
+      click: () =>
+        changeTrackingSetting(
+          'faceTrackingTwoPeople',
+          !settings.faceTrackingTwoPeople,
+        ),
     },
     { type: 'separator' },
     {
@@ -654,6 +667,7 @@ function getTrackingTuning() {
     tolerance: settings.faceTrackingTolerance,
     framing: settings.faceTrackingFraming,
     easing: settings.faceTrackingEasing,
+    twoPeople: settings.faceTrackingTwoPeople,
   };
 }
 

@@ -36,6 +36,12 @@ Inseguimento automatico e molto delicato del volto: l'app rileva dove sta la fac
 - Q: Perché il tracking si fermava da solo pochi secondi dopo averlo acceso? → A: La pausa al buio guardava la luminosità media di tutta l'immagine: con uno sfondo nero la media era 22 (soglia 35) anche con il volto ben visibile e trovato a ogni rilevamento, e per ripartire serviva una media sopra 55 che con quello sfondo non arriva mai.
 - Q: Ritarare le soglie? → A: No: qualunque soglia sulla media sbaglia con uno sfondo scuro. Decisione di Andrea: la pausa si decide sul volto. Senza volto per 30 secondi la ricerca rallenta a una volta al secondo, e riparte piena appena un volto ricompare. La misura della luce e la riga "Luce" del pannello spariscono.
 
+### Sessione 2026-11-13
+
+- Q: Il tracking può inquadrare due persone invece di una? → A: Sì, con una spunta "Two People" nel menu Face Tracking, ricordata alla riapertura. Con la modalità accesa si insegue il punto a metà fra i due volti, così la coppia resta centrata insieme; con tre o più volti contano i due più grandi.
+- Q: Con la modalità accesa ma un volto solo visibile? → A: Si insegue quello, come nella modalità normale (decisione di Andrea).
+- Q: E lo zoom? → A: Sale solo finché tutti e due i volti restano dentro la finestra con un po' di margine: con due persone affiancate spesso non sale affatto.
+
 ## Scenari
 
 ### Attivazione e disattivazione
@@ -66,6 +72,16 @@ Con il tracking attivo, quando la persona si sposta davanti alla webcam l'inquad
 - Quanto partenza e frenata sono accentuate si regola su tre livelli (Easing): al livello 1 il movimento parte con la spinta piena, salendo prende velocità più gradualmente. In nessun livello il movimento oltrepassa il bersaglio.
 - Dal menu si può impostare un ritardo di partenza (Tracking Delay, da 0 a 2 secondi a passi di 0.5): il movimento comincia solo se il volto resta fuori tolleranza per almeno quel tempo; se rientra prima, l'inquadratura non si muove affatto.
 - La tolleranza si regola dal menu su cinque livelli (Tracking Tolerance): decide di quanto il volto può allontanarsi dal bersaglio prima che l'inseguimento parta.
+
+### Modalità due persone
+
+Con la spunta "Two People" il tracking inquadra due persone insieme invece di una. Test: TBD.
+
+- Nel sottomenu Face Tracking compare la spunta "Two People", spenta di serie; lo stato sopravvive alla riapertura dell'app.
+- Con due volti nel campo visivo l'inquadratura porta nella posizione bersaglio il punto a metà fra i due, con la stessa morbidezza e le stesse regole di zona, tolleranza e ritardo della modalità normale.
+- Con tre o più volti si inquadrano i due più grandi, cioè i più vicini alla webcam.
+- Con un volto solo visibile si insegue quello, come nella modalità normale; quando ricompare il secondo l'inquadratura torna sulla coppia.
+- Lo zoom non taglia mai fuori nessuno dei due: sale solo finché entrambi i volti, con la coppia centrata, restano dentro la finestra con un margine.
 
 ### Il tracking usa lo zoom solo quando serve
 
@@ -105,7 +121,7 @@ Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può a
 
 ## Edge case
 
-- Più volti nel campo visivo: si insegue il più grande (il più vicino alla webcam), con un margine di stabilità per non saltare tra volti di dimensioni simili.
+- Più volti nel campo visivo: si insegue il più grande (il più vicino alla webcam), con un margine di stabilità per non saltare tra volti di dimensioni simili. In modalità due persone si inquadrano i due più grandi.
 - Cambio webcam con tracking attivo: il tracking continua a funzionare sul nuovo dispositivo senza dover essere riattivato.
 - Volto parzialmente fuori dal campo visivo della webcam: il tracking fa quel che può entro il vincolo dei bordi, senza comportamenti erratici.
 - Sessioni lunghe: se il motore di rilevamento va in errore, il tracking si auto-ripristina (o al peggio si spegne da solo); il video dell'app non deve mai congelarsi per colpa del tracking.
@@ -117,7 +133,7 @@ Lo spostamento automatico è vincolato ai bordi del video: l'inquadratura può a
 - Il tracking non cambia ciò che vedono gli altri in call: agisce solo sull'immagine dentro la finestra PiP. Con tracking attivo la finestrella non è più un controllo fedele dell'inquadratura reale — scelta consapevole, si spegne quando serve verificarla.
 - Nessun controllo fisico della webcam (motori PTZ, zoom ottico): si lavora solo sull'immagine già ricevuta.
 - Nessun riconoscimento dell'identità: l'app rileva _che_ c'è un volto e dove, non _di chi_ è.
-- Nessun inseguimento di più volti contemporaneamente o inquadratura "di gruppo".
+- Nessuna inquadratura di gruppo oltre le due persone.
 - Nessun invio di immagini o dati fuori dal computer: il rilevamento gira interamente in locale.
 
 ## Assunzioni

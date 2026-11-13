@@ -23,6 +23,7 @@ const TRACKING_TUNING = {
   adaptiveSpeedSpan: 0.35, // frazione del lato corto della finestra a cui il boost satura
   zoomScanStep: 0.05, // passo della ricerca del minimo zoom necessario
   zoomReleaseMargin: 0.15, // lo zoom scende solo se il necessario è più basso di almeno tanto così
+  pairFitFraction: 0.85, // modalità due persone: la coppia occupa al più l'85% dello spazio fra bersaglio e bordo finestra
   persistIntervalMs: 1000, // throttle del salvataggio di zoom/offset nei settings
 };
 

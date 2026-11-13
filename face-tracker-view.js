@@ -9,17 +9,18 @@
  * senza stato: lo stato e i loop vivono in face-tracker.js, che con
  * face-chase-policy.js è l'unico consumatore di questo file. Qui stanno anche
  * le due soglie con cui il loop di movimento decide se un passo è ormai
- * trascurabile e se la vista è arrivata sul bersaglio.
+ * trascurabile e se la vista è arrivata sul bersaglio, e il tetto di zoom
+ * che in modalità due persone tiene dentro entrambi i volti.
  */
 
 // Misure di layout (offsetWidth/Height), non toccate dai transform CSS: con
 // object-fit: contain l'area video visibile può essere più piccola dell'elemento
 // per camere non-16:9.
 function computeViewGeometry(videoElement) {
-  if (!videoElement.videoWidth || !videoElement.videoHeight) return null;
+  if (!videoElement.videoWidth || !videoElement.videoHeight) {return null;}
   const scale = Math.min(
     videoElement.offsetWidth / videoElement.videoWidth,
-    videoElement.offsetHeight / videoElement.videoHeight
+    videoElement.offsetHeight / videoElement.videoHeight,
   );
   return {
     contentWidth: videoElement.videoWidth * scale,
@@ -83,7 +84,7 @@ function faceErrorFromZone(placement, zoom, offsetX, offsetY) {
   const screen = screenPositionOf(placement, zoom, offsetX, offsetY);
   return Math.hypot(
     screen.x - clampBetween(screen.x, placement.zoneLeft, placement.zoneRight),
-    screen.y - clampBetween(screen.y, placement.zoneTop, placement.zoneBottom)
+    screen.y - clampBetween(screen.y, placement.zoneTop, placement.zoneBottom),
   );
 }
 
@@ -104,7 +105,12 @@ function clampAbs(value, bound) {
 // un nuovo valore: si ricava la posizione attuale a schermo e la si impone al
 // nuovo zoom. Usato dal release "zoom al minimo indispensabile".
 function zoomReleaseOffsetsFor(placement, view, zoom) {
-  const screen = screenPositionOf(placement, view.zoom, view.offsetX, view.offsetY);
+  const screen = screenPositionOf(
+    placement,
+    view.zoom,
+    view.offsetX,
+    view.offsetY,
+  );
   return {
     offsetX: placement.flipSign * screen.x - zoom * placement.faceCx,
     offsetY: screen.y - zoom * placement.faceCy,
@@ -117,26 +123,64 @@ function zoomReleaseOffsetsFor(placement, view, zoom) {
 function residualErrorAt(placement, geometry, zoom, errorAt) {
   const bounds = offsetBoundsFor(geometry, zoom);
   const offsets = desiredOffsetsFor(placement, zoom);
-  return errorAt(placement, zoom, clampAbs(offsets.offsetX, bounds.x), clampAbs(offsets.offsetY, bounds.y));
+  return errorAt(
+    placement,
+    zoom,
+    clampAbs(offsets.offsetX, bounds.x),
+    clampAbs(offsets.offsetY, bounds.y),
+  );
 }
 
 // Il minimo zoom (a passi di scanStep) che porta l'errore misurato da errorAt
 // entro stopRadius rispettando il clamp; maxZoom se non basta mai.
-function minimalZoomFor(placement, geometry, maxZoom, stopRadius, scanStep, errorAt) {
+function minimalZoomFor(
+  placement,
+  geometry,
+  maxZoom,
+  stopRadius,
+  scanStep,
+  errorAt,
+) {
   for (let zoom = 1; zoom <= maxZoom + 1e-9; zoom += scanStep) {
-    if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius) return zoom;
+    if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius)
+      {return zoom;}
   }
   return maxZoom;
 }
 
+// Tetto di zoom del tracking. In modalità due persone (face.extent presente)
+// scende fino al massimo a cui la coppia, col centro sul bersaglio, entra
+// nella finestra con margine fitFraction; mai sotto 1. Il tetto si misura dal
+// bersaglio e non dai bordi della zona: dai bordi azzererebbe sempre lo zoom
+// (in verticale la zona di serie parte da 0). Con "Tracking Zoom" su Off (0)
+// lo zoom resta dell'utente e il tetto non conta.
+function trackingMaxZoomFor(face, geometry, zone, maxZoom, fitFraction) {
+  if (maxZoom <= 0 || !face.extent) {return maxZoom;}
+  const { extent } = face;
+  // Il flip scambia destra e sinistra: si tiene il lato più stretto.
+  const roomX = Math.min(zone.targetX, 1 - zone.targetX) * geometry.windowWidth;
+  const caps = [
+    roomX / (Math.max(extent.left, extent.right) * geometry.contentWidth),
+    (zone.targetY * geometry.windowHeight) /
+      (extent.top * geometry.contentHeight),
+    ((1 - zone.targetY) * geometry.windowHeight) /
+      (extent.bottom * geometry.contentHeight),
+  ];
+  return Math.max(1, Math.min(maxZoom, fitFraction * Math.min(...caps)));
+}
+
 function isTinyStep(view, next) {
-  return Math.abs(next.zoom - view.zoom) < 0.0005
-    && Math.abs(next.offsetX - view.offsetX) < 0.05
-    && Math.abs(next.offsetY - view.offsetY) < 0.05;
+  return (
+    Math.abs(next.zoom - view.zoom) < 0.0005 &&
+    Math.abs(next.offsetX - view.offsetX) < 0.05 &&
+    Math.abs(next.offsetY - view.offsetY) < 0.05
+  );
 }
 
 function isAtTarget(view, desired) {
-  return Math.abs(desired.zoom - view.zoom) < 0.005
-    && Math.abs(desired.offsetX - view.offsetX) < 0.5
-    && Math.abs(desired.offsetY - view.offsetY) < 0.5;
+  return (
+    Math.abs(desired.zoom - view.zoom) < 0.005 &&
+    Math.abs(desired.offsetX - view.offsetX) < 0.5 &&
+    Math.abs(desired.offsetY - view.offsetY) < 0.5
+  );
 }

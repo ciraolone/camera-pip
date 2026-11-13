@@ -27,6 +27,8 @@
 - [ ] T22 Auto-ripristino dello stream video: watchdog su `requestVideoFrameCallback` (fotogrammi davvero consegnati; `currentTime` avanza comunque sugli stream live e non fa da segnale) che riavvia la camera se i fotogrammi smettono di arrivare, con cooldown di 15s. Acceptance: il video non resta mai congelato oltre ~5 secondi per cause recuperabili; ogni riavvio lascia traccia nei log; zero riavvii su stream sani. Verifica dal vivo: sul portatile il video non resta mai bloccato; se si inceppa, riparte da solo entro pochi secondi.
 - [ ] T11 Sessione di taratura dal vivo con l'utente: zona morta, velocità di inseguimento, cadenza detection, soglia di assenza, quota occhi. Acceptance: l'utente giudica il movimento "molto delicato" negli scenari reali (call, spostamenti alla scrivania). Verifica dal vivo: sessione dedicata con ritocco iterativo delle costanti.
 
+- [x] T23 [S: Modalità due persone] Spunta "Two People" nel menu Face Tracking (chiave `faceTrackingTwoPeople`, nella taratura come `twoPeople`), selezione della coppia e tetto di zoom che tiene dentro entrambi. Acceptance: con due volti l'inquadratura centra la coppia; con uno solo lo insegue; lo zoom non taglia nessuno dei due. Verifica dal vivo: accendi Two People, mettiti davanti alla webcam con un'altra persona e spostatevi insieme; poi esci tu e l'inquadratura segue l'altra.
+
 ## Lavoro residuo
 
 - [ ] T12 Decidere con l'utente se dotare il progetto di test automatici: oggi non c'è alcuna infrastruttura di test e gli scenari dello spec restano `Test: TBD`. Acceptance: decisione presa e registrata nello spec (i `Test: TBD` sostituiti dalla scelta fatta o da un rimando esplicito alla verifica dal vivo). Verifica utente: non richiesta (la decisione è la conversazione stessa).
