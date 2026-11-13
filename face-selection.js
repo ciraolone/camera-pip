@@ -16,25 +16,32 @@ function selectTrackedFace(
   stickinessRatio,
   sameFaceMaxDistance,
 ) {
-  if (!detections || detections.length === 0) {return null;}
+  if (!detections || detections.length === 0) {
+    return null;
+  }
   let largest = detections[0];
   for (const detection of detections) {
-    if (faceAreaOf(detection) > faceAreaOf(largest)) {largest = detection;}
+    if (faceAreaOf(detection) > faceAreaOf(largest)) {
+      largest = detection;
+    }
   }
   const tracked = findPreviousFace(
     detections,
     previousFace,
     sameFaceMaxDistance,
   );
-  if (tracked && faceAreaOf(tracked) >= faceAreaOf(largest) * stickinessRatio)
-    {return tracked;}
+  if (tracked && faceAreaOf(tracked) >= faceAreaOf(largest) * stickinessRatio) {
+    return tracked;
+  }
   return largest;
 }
 
 // Il volto già agganciato è quello col centro-occhi più vicino a quello
 // dell'ultimo giro, se abbastanza vicino da poter essere lo stesso volto.
 function findPreviousFace(detections, previousFace, sameFaceMaxDistance) {
-  if (!previousFace) {return null;}
+  if (!previousFace) {
+    return null;
+  }
   let best = null;
   let bestDistance = sameFaceMaxDistance;
   for (const detection of detections) {
@@ -55,7 +62,9 @@ function findPreviousFace(detections, previousFace, sameFaceMaxDistance) {
 // extent sono le distanze dal centro-coppia ai bordi dell'unione dei due
 // riquadri: servono a pairZoomCapFor per non tagliare fuori nessuno.
 function selectTrackedPair(detections) {
-  if (!detections || detections.length < 2) {return null;}
+  if (!detections || detections.length < 2) {
+    return null;
+  }
   const [first, second] = [...detections].sort(
     (a, b) => faceAreaOf(b) - faceAreaOf(a),
   );
@@ -94,11 +103,14 @@ function eyeCenterOf(detection) {
 // dalla posizione nuova (cambio volto o spostamento repentino), senza
 // trascinare la media attraverso il salto.
 function smoothFacePosition(previousFace, eyes, smoothingAlpha, snapDistance) {
-  if (!previousFace) {return eyes;}
+  if (!previousFace) {
+    return eyes;
+  }
   if (
     Math.hypot(eyes.u - previousFace.u, eyes.v - previousFace.v) > snapDistance
-  )
-    {return eyes;}
+  ) {
+    return eyes;
+  }
   return {
     u: previousFace.u + (eyes.u - previousFace.u) * smoothingAlpha,
     v: previousFace.v + (eyes.v - previousFace.v) * smoothingAlpha,

@@ -17,7 +17,9 @@
 // object-fit: contain l'area video visibile può essere più piccola dell'elemento
 // per camere non-16:9.
 function computeViewGeometry(videoElement) {
-  if (!videoElement.videoWidth || !videoElement.videoHeight) {return null;}
+  if (!videoElement.videoWidth || !videoElement.videoHeight) {
+    return null;
+  }
   const scale = Math.min(
     videoElement.offsetWidth / videoElement.videoWidth,
     videoElement.offsetHeight / videoElement.videoHeight,
@@ -142,8 +144,9 @@ function minimalZoomFor(
   errorAt,
 ) {
   for (let zoom = 1; zoom <= maxZoom + 1e-9; zoom += scanStep) {
-    if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius)
-      {return zoom;}
+    if (residualErrorAt(placement, geometry, zoom, errorAt) <= stopRadius) {
+      return zoom;
+    }
   }
   return maxZoom;
 }
@@ -155,7 +158,9 @@ function minimalZoomFor(
 // (in verticale la zona di serie parte da 0). Con "Tracking Zoom" su Off (0)
 // lo zoom resta dell'utente e il tetto non conta.
 function trackingMaxZoomFor(face, geometry, zone, maxZoom, fitFraction) {
-  if (maxZoom <= 0 || !face.extent) {return maxZoom;}
+  if (maxZoom <= 0 || !face.extent) {
+    return maxZoom;
+  }
   const { extent } = face;
   // Il flip scambia destra e sinistra: si tiene il lato più stretto.
   const roomX = Math.min(zone.targetX, 1 - zone.targetX) * geometry.windowWidth;
