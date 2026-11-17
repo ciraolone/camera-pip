@@ -8,13 +8,41 @@
  * callback per pilotare le stesse trasformazioni.
  */
 
+// Attese fra un tentativo e l'altro quando la camera non si apre: crescono perché dopo un risveglio
+// Windows ci mette qualche secondo a restituirla. Finiti i tentativi è un guasto vero.
+const RETRY_DELAYS_MS = [2000, 5000, 15000];
+
+// Errori da cui la camera di solito si riprende da sola: la camera scelta che momentaneamente
+// non c'è (OverconstrainedError, solo deviceId è un vincolo rigido) o che Windows non ha ancora
+// restituito dopo sospensione o blocco schermo (NotReadableError, TrackStartError).
+const TRANSIENT_ERRORS = [
+  'OverconstrainedError',
+  'NotReadableError',
+  'TrackStartError',
+];
+
+// Testo mostrato nella finestra quando la camera non si apre.
+function describeCameraError(error) {
+  const messages = {
+    NotFoundError: 'Camera not found',
+    DeviceNotFoundError: 'Camera not found',
+    NotAllowedError: 'Camera permission denied',
+    PermissionDeniedError: 'Camera permission denied',
+    NotReadableError: 'Camera in use by another application',
+    TrackStartError: 'Camera in use by another application',
+  };
+  return (
+    messages[error.name] ||
+    'Unable to connect to camera after multiple attempts'
+  );
+}
+
 class CameraPiP {
   constructor() {
     this.videoElement = null;
     this.currentStream = null;
     this.retryCount = 0;
-    this.maxRetries = 3;
-    this.retryDelay = 2000;
+    this.retryTimer = null;
     this.webcamInfoElement = null;
     this.showWebcamInfo = false;
     this.currentZoom = 1;
@@ -126,6 +154,10 @@ class CameraPiP {
 
     window.electronAPI.receive('settings-changed', () => {
       this.restartCamera();
+    });
+
+    window.electronAPI.receive('system-woke', () => {
+      this.restartAfterWake();
     });
 
     window.electronAPI.receive('webcam-info-toggled', (show) => {
@@ -349,10 +381,6 @@ class CameraPiP {
 
   // Handle camera errors
   async handleError(error) {
-    // createConstraints mette come vincolo rigido solo il deviceId (risoluzione e fps sono "ideal"):
-    // l'OverconstrainedError vuol dire che la camera scelta in questo istante non c'è, tipicamente
-    // perché Windows la sta rimettendo in piedi dopo che ha smesso di consegnare fotogrammi. È un
-    // caso previsto e riparato qui sotto, quindi è un avviso: come errore aprirebbe una chat di guasto.
     if (error.name === 'OverconstrainedError') {
       console.warn(
         `Camera scelta non disponibile (vincolo ${error.constraint}), apro quella predefinita`,
@@ -360,27 +388,17 @@ class CameraPiP {
       await this.retryWithDefaultCamera();
       return;
     }
-    console.error('Camera error:', error.name, error.message);
-
-    switch (error.name) {
-      case 'NotFoundError':
-      case 'DeviceNotFoundError':
-        this.showError('Camera not found');
-        break;
-
-      case 'NotAllowedError':
-      case 'PermissionDeniedError':
-        this.showError('Camera permission denied');
-        break;
-
-      case 'NotReadableError':
-      case 'TrackStartError':
-        this.showError('Camera in use by another application');
-        break;
-
-      default:
-        await this.retryConnection();
+    if (TRANSIENT_ERRORS.includes(error.name)) {
+      console.warn(
+        'Camera non ancora pronta, riprovo:',
+        error.name,
+        error.message,
+      );
+      this.retryConnection(error);
+      return;
     }
+    console.error('Camera error:', error.name, error.message);
+    this.showError(describeCameraError(error));
   }
 
   // Stesse impostazioni di risoluzione e fps, senza imporre la camera. Non manda device-active:
@@ -391,27 +409,46 @@ class CameraPiP {
       await this.openStream(this.createConstraints(null, settings));
       this.retryCount = 0;
     } catch (error) {
-      console.error(
-        'Camera error: non si apre nemmeno la camera predefinita:',
+      console.warn(
+        'Non si apre nemmeno la camera predefinita, riprovo:',
         error.name,
         error.message,
       );
-      await this.retryConnection();
+      this.retryConnection(error);
     }
   }
 
-  // Retry connection
-  async retryConnection() {
-    if (this.retryCount >= this.maxRetries) {
-      this.showError('Unable to connect to camera after multiple attempts');
+  // Un solo tentativo in attesa alla volta: due catene di riavvii parallele si ruberebbero la camera.
+  retryConnection(lastError) {
+    clearTimeout(this.retryTimer);
+    if (this.retryCount >= RETRY_DELAYS_MS.length) {
+      console.error(
+        `Camera error: la camera non si apre dopo ${this.retryCount} tentativi:`,
+        lastError.name,
+        lastError.message,
+      );
+      this.showError(describeCameraError(lastError));
       return;
     }
-
+    const delay = RETRY_DELAYS_MS[this.retryCount];
     this.retryCount++;
-    await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.restartCamera();
+    }, delay);
+  }
 
-    const settings = await this.getSettings();
-    await this.startCamera(settings.selectedDeviceId);
+  // Al risveglio o allo sblocco Windows restituisce la webcam: si riparte con i tentativi azzerati,
+  // perché quelli consumati mentre il computer dormiva non dicono niente sulla camera.
+  restartAfterWake() {
+    const track = this.currentStream?.getVideoTracks()[0];
+    if (track?.readyState === 'live' && !track.muted) {
+      return;
+    }
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retryCount = 0;
+    this.restartCamera();
   }
 
   // Update device list

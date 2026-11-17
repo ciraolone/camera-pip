@@ -24,6 +24,7 @@ const CHANNELS = {
   receive: [
     'device-selected',
     'settings-changed',
+    'system-woke',
     'webcam-info-toggled',
     'webcam-info-data',
     'zoom-changed',

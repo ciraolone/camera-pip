@@ -27,6 +27,7 @@ const {
   ipcMain,
   systemPreferences,
   shell,
+  powerMonitor,
 } = require('electron');
 const windowStateKeeper = require('electron-window-state');
 
@@ -854,6 +855,16 @@ function setupIPC() {
   });
 }
 
+// Windows toglie la webcam alle app durante sospensione e blocco schermo: al ritorno la finestra la
+// riapre da capo, anche se nel frattempo aveva esaurito i tentativi.
+function restartCameraOnWake() {
+  ['resume', 'unlock-screen'].forEach((eventName) =>
+    powerMonitor.on(eventName, () =>
+      mainWindow?.webContents.send('system-woke'),
+    ),
+  );
+}
+
 // App initialization
 async function initialize() {
   try {
@@ -873,6 +884,7 @@ async function initialize() {
 
     createWindow();
     createTray();
+    restartCameraOnWake();
     reportFailedSwap();
     setPeriodicRefresh(() => mainWindow, getSettings().windowRefreshSeconds);
     startCodeStallWatch(() => mainWindow);
